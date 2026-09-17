@@ -1,0 +1,24 @@
+<resources>
+    <string name="app_name">Glyph 灯带控制</string>
+    <string name="app_desc">Nothing Phone (2) 的 33 区 Glyph 灯带控制</string>
+    <string name="status_label">当前状态</string>
+    <string name="status_unknown">未知</string>
+    <string name="status_root_ok">Root 正常，可以控制灯带</string>
+    <string name="status_no_root">未获取 Root 权限！</string>
+    <string name="status_all_on">全部点亮中</string>
+    <string name="status_all_off">已全部熄灭</string>
+    <string name="btn_turn_on">全部点亮</string>
+    <string name="btn_turn_off">全部熄灭</string>
+    <string name="charger_hint">插入充电器时，灯带将从下往上流光一次（root 看门狗监控中）</string>
+    <string name="sw_notify">通知闪烁（来通知三段爆闪）</string>
+    <string name="sw_charger">充电流光（插入充电器触发）</string>
+    <string name="notify_label">通知闪烁</string>
+    <string name="btn_listener">授权通知使用权</string>
+    <string name="notify_ready">通知闪烁：已就绪</string>
+    <string name="notify_need_listener">通知闪烁：请先点击上方按钮授权通知使用权</string>
+    <string name="notify_hint">来通知时，最下方、主环右上方、相机灯带依次迅速闪烁一次</string>
+    <string name="hint_root">此应用通过 root 直接写入 sysfs 控制灯带，无需前台限制</string>
+    <string name="tile_label">Glyph 全亮</string>
+    <string name="tile_subtitle_on">全部点亮</string>
+    <string name="tile_subtitle_off">已熄灭</string>
+</resources>

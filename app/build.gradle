@@ -1,0 +1,40 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.example.glyphallon'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.example.glyphallon"
+        minSdk 33
+        targetSdk 35
+        versionCode 20
+        versionName "1.19"
+        resourceConfigurations += ["zh", "en"]
+    }
+
+    signingConfigs {
+        debug {
+            // release 也用 debug 签名，方便直接安装
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            signingConfig signingConfigs.debug
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
+
+dependencies {
+    implementation 'com.google.android.material:material:1.12.0'
+}
