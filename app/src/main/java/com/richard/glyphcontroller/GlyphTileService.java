@@ -1,4 +1,4 @@
-package com.example.glyphallon;
+package com.richard.glyphcontroller;
 
 import android.service.quicksettings.Tile;
 import android.service.quicksettings.TileService;

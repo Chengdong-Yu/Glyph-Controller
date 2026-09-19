@@ -1,4 +1,4 @@
-package com.example.glyphallon;
+package com.richard.glyphcontroller;
 
 import android.app.Notification;
 import android.service.notification.NotificationListenerService;

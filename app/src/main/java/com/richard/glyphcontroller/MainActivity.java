@@ -1,4 +1,4 @@
-package com.example.glyphallon;
+package com.richard.glyphcontroller;
 
 import android.app.Activity;
 import android.content.Intent;
@@ -12,7 +12,7 @@ import android.widget.TextView;
 import com.google.android.material.switchmaterial.SwitchMaterial;
 
 public class MainActivity extends Activity {
-    private static final String TAG = "GlyphAllOn";
+    private static final String TAG = "GlyphController";
     private static final String PREFS = "settings";
 
     private RootGlyphClient mClient;

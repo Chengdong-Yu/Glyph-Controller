@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "GlyphAllOn"
+rootProject.name = "GlyphController"
 include ':app'

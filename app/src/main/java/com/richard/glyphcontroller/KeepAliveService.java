@@ -1,4 +1,4 @@
-package com.example.glyphallon;
+package com.richard.glyphcontroller;
 
 import android.app.Service;
 import android.content.Intent;

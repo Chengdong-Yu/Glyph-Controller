@@ -1,4 +1,4 @@
-package com.example.glyphallon;
+package com.richard.glyphcontroller;
 
 import android.content.Context;
 import android.util.Log;
@@ -14,7 +14,7 @@ import java.io.FileOutputStream;
  */
 public final class RootKeepAlive {
     private static final String TAG = "GlyphKeepAlive";
-    private static final String PKG = "com.example.glyphallon";
+    private static final String PKG = "com.richard.glyphcontroller";
     private static final String SCRIPT = "/data/adb/service.d/glyph_keepalive.sh";
     private static final String TMP_NAME = "glyph_keepalive.sh";
 
@@ -65,7 +65,7 @@ public final class RootKeepAlive {
     private static void writeScript(Context context) throws Exception {
         StringBuilder sb = new StringBuilder();
         sb.append("#!/system/bin/sh\n");
-        sb.append("# GlyphAllOn keepalive + charger monitor (installed by app)\n");
+        sb.append("# GlyphController keepalive + charger monitor (installed by app)\n");
         sb.append("PKG=").append(PKG).append("\n");
         // 一次性设置（幂等）：电池白名单 + 后台运行 + 待机桶豁免 + MIUI 自启动
         sb.append("dumpsys deviceidle whitelist +$PKG >/dev/null 2>&1\n");

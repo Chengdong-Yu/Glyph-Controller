@@ -1,4 +1,4 @@
-package com.example.glyphallon;
+package com.richard.glyphcontroller;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;
