@@ -7,12 +7,11 @@ import android.util.Log
 
 /**
  * 通知触发闪烁：来通知时三组灯带依次迅速亮起并熄灭一次——
- * 最下方感叹号竖条+圆点 -> 主环右上方弧段 -> 相机 deco 周围两条灯带。
+ * 最下方 D1 + E1 -> C1 上弧末段 -> A1 + A2 相机灯带。
  */
 class GlyphNotificationService : NotificationListenerService() {
 
     private val mLock = Any()
-    private var mClient: RootGlyphClient? = null
     private var mFlashing = false
     private var mKeepAliveInstalled = false
 
@@ -23,12 +22,14 @@ class GlyphNotificationService : NotificationListenerService() {
         if (!mKeepAliveInstalled) {
             mKeepAliveInstalled = true
             Thread {
-                synchronized(mLock) {
-                    if (mClient == null) mClient = RootGlyphClient()
+                val client = RootGlyphClient()
+                try {
+                    RootKeepAlive.ensureInstalled(this, client)
+                    // Notification-listener registration can be lost after MIUI force-stop.
+                    RootKeepAlive.ensureListenerRegistered()
+                } finally {
+                    client.destroy()
                 }
-                RootKeepAlive.ensureInstalled(this, mClient)
-                // 通知监听注册自愈：独立会话执行（已注册时为 no-op）
-                RootKeepAlive.ensureListenerRegistered()
             }.start()
         }
     }
@@ -51,13 +52,9 @@ class GlyphNotificationService : NotificationListenerService() {
     }
 
     private val mFlash = Runnable {
-        val client: RootGlyphClient
-        synchronized(mLock) {
-            if (mClient == null) mClient = RootGlyphClient()
-            client = mClient!!
-        }
-        if (!client.isRootAvailable()) {
-            Log.w(TAG, "no root, skip flash")
+        val lease = GlyphEffectCoordinator.beginEffect(GlyphEffectCoordinator.Effect.NOTIFICATION)
+        if (lease == null) {
+            Log.d(TAG, "Glyph unavailable or higher-priority effect active")
             synchronized(mLock) {
                 mFlashing = false
             }
@@ -68,30 +65,18 @@ class GlyphNotificationService : NotificationListenerService() {
             for (g in GROUPS) {
                 val on = IntArray(33)
                 for (idx in g) on[idx] = 255
-                synchronized(mLock) {
-                    client.setZoneColors(on)
-                }
+                if (!GlyphEffectCoordinator.renderFrame(lease, on)) return@Runnable
                 Thread.sleep(ON_MS)
-                synchronized(mLock) {
-                    client.setZoneColors(off)
-                }
+                if (!GlyphEffectCoordinator.renderFrame(lease, off)) return@Runnable
                 Thread.sleep(GAP_MS)
             }
         } catch (ignored: InterruptedException) {
         } finally {
-            client.turnOff()
+            GlyphEffectCoordinator.finishEffect(this, lease)
             synchronized(mLock) {
                 mFlashing = false
             }
         }
-    }
-
-    override fun onDestroy() {
-        synchronized(mLock) {
-            mClient?.destroy()
-            mClient = null
-        }
-        super.onDestroy()
     }
 
     companion object {
@@ -102,8 +87,8 @@ class GlyphNotificationService : NotificationListenerService() {
         /** 依次闪烁的三组灯带（frame 索引） */
         private val GROUPS = arrayOf(
             intArrayOf(25, 26, 27, 28, 29, 30, 31, 32, 24),  // 最下方：感叹号竖条 + 圆点
-            intArrayOf(13, 14, 15, 16, 17, 18),              // 主环右上方弧段
-            intArrayOf(0, 1)                                 // 相机 deco 周围两条灯带
+            intArrayOf(13, 14, 15, 16, 17, 18),              // C1_11..C1_16，上弧靠左
+            intArrayOf(0, 1)                                 // A1 + A2 相机灯带
         )
     }
 }

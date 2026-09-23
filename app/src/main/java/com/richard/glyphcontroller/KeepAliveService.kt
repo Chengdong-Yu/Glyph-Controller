@@ -14,8 +14,12 @@ class KeepAliveService : Service() {
         Log.d("GlyphKeepAlive", "resurrected")
         val client = RootGlyphClient()
         Thread {
-            RootKeepAlive.ensureInstalled(this, client)
-            client.destroy()
+            try {
+                RootKeepAlive.ensureInstalled(this, client)
+                RootKeepAlive.ensureListenerRegistered()
+            } finally {
+                client.destroy()
+            }
         }.start()
         return START_STICKY
     }

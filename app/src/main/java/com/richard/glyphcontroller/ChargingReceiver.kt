@@ -20,8 +20,11 @@ class ChargingReceiver : BroadcastReceiver() {
             val app = context.applicationContext
             Thread {
                 val client = RootGlyphClient()
-                RootKeepAlive.ensureInstalled(app, client)
-                client.destroy()
+                try {
+                    RootKeepAlive.ensureInstalled(app, client)
+                } finally {
+                    client.destroy()
+                }
             }.start()
         }
     }

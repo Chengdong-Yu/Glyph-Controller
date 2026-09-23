@@ -1,57 +1,52 @@
 package com.richard.glyphcontroller
 
+import android.os.Handler
+import android.os.Looper
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
+import android.util.Log
 
 /**
  * Quick Settings tile: one tap toggles all Glyph lights.
  * State is persisted so the tile reflects the last action across restarts.
  */
 class GlyphTileService : TileService() {
+    private var mToggling = false
 
     override fun onStartListening() {
         updateTile()
     }
 
     override fun onClick() {
-        val on = isOn()
-        var success = false
-        val client = RootGlyphClient()
-        try {
-            if (client.isRootAvailable()) {
-                if (on) {
-                    client.turnOff()
-                } else {
-                    client.turnOnAll()
+        if (mToggling) return
+        mToggling = true
+        Thread {
+            try {
+                if (!GlyphEffectCoordinator.toggleManual(applicationContext)) {
+                    Log.w("GlyphTile", "Glyph toggle was not applied")
                 }
-                success = true
+            } catch (e: Exception) {
+                Log.e("GlyphTile", "Failed to toggle glyphs", e)
             }
-        } finally {
-            client.destroy()
-        }
-        if (success) {
-            setOn(!on)
-        }
-        updateTile()
-    }
-
-    private fun isOn(): Boolean =
-        getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_ON, false)
-
-    private fun setOn(on: Boolean) {
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(KEY_ON, on).apply()
+            Handler(Looper.getMainLooper()).post {
+                updateTile()
+                mToggling = false
+            }
+        }.start()
     }
 
     private fun updateTile() {
         val tile = qsTile ?: return
-        val on = isOn()
+        val frame = GlyphPowerState.getFrame(this)
+        val on = frame.any { it > 0 }
         tile.state = if (on) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
-        tile.subtitle = getString(if (on) R.string.tile_subtitle_on else R.string.tile_subtitle_off)
+        tile.subtitle = getString(
+            when {
+                !on -> R.string.tile_subtitle_off
+                frame.all { it == 255 } -> R.string.tile_subtitle_on
+                else -> R.string.tile_subtitle_custom
+            }
+        )
         tile.updateTile()
-    }
-
-    companion object {
-        private const val PREFS = "glyph_state"
-        private const val KEY_ON = "all_on"
     }
 }

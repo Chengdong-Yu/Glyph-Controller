@@ -12,7 +12,6 @@ import android.util.Log
 class ChargingSweepService : Service() {
 
     private val mLock = Any()
-    private var mClient: RootGlyphClient? = null
     private var mAnimRunning = false
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -35,13 +34,9 @@ class ChargingSweepService : Service() {
     }
 
     private val mAnimation = Runnable {
-        val client: RootGlyphClient
-        synchronized(mLock) {
-            if (mClient == null) mClient = RootGlyphClient()
-            client = mClient!!
-        }
-        if (!client.isRootAvailable()) {
-            Log.w(TAG, "no root, skip sweep")
+        val lease = GlyphEffectCoordinator.beginEffect(GlyphEffectCoordinator.Effect.CHARGING)
+        if (lease == null) {
+            Log.w(TAG, "Glyph unavailable or another charging effect is active")
             synchronized(mLock) {
                 mAnimRunning = false
             }
@@ -58,8 +53,8 @@ class ChargingSweepService : Service() {
                     }
                     if (i + 1 < SEQUENCE.size) f[SEQUENCE[i + 1]] = 130
                     if (i + 2 < SEQUENCE.size) f[SEQUENCE[i + 2]] = 60
-                    client.setZoneColors(f)
                 }
+                if (!GlyphEffectCoordinator.renderFrame(lease, f)) return@Runnable
                 Thread.sleep(STEP_MS)
             }
             // 保持全亮
@@ -68,28 +63,18 @@ class ChargingSweepService : Service() {
             var b = 170
             while (b > 0) {
                 for (idx in SEQUENCE) f[idx] = b
-                synchronized(mLock) {
-                    client.setZoneColors(f)
-                }
+                if (!GlyphEffectCoordinator.renderFrame(lease, f)) return@Runnable
                 Thread.sleep(FADE_MS)
                 b -= 85
             }
         } catch (ignored: InterruptedException) {
         } finally {
-            client.turnOff()
+            GlyphEffectCoordinator.finishEffect(this, lease)
             synchronized(mLock) {
                 mAnimRunning = false
             }
             stopSelf()
         }
-    }
-
-    override fun onDestroy() {
-        synchronized(mLock) {
-            mClient?.destroy()
-            mClient = null
-        }
-        super.onDestroy()
     }
 
     companion object {

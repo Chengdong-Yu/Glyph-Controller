@@ -11,8 +11,8 @@ android {
         applicationId "com.richard.glyphcontroller"
         minSdk 33
         targetSdk 35
-        versionCode 20
-        versionName "1.19"
+        versionCode 22
+        versionName "1.21"
         resourceConfigurations += ["zh", "en"]
     }
 

@@ -1,0 +1,63 @@
+# Glyph Controller
+
+一款面向 **Nothing Phone (2)** 的 Android Glyph 灯带控制应用。应用通过 root 直接写入设备的 Glyph LED 节点，无需 Nothing 官方 SDK。它提供 33 区亮度控制、场景预设、通知闪烁、充电流光和快捷设置开关。
+
+> 当前版本仅针对 Phone (2) 的 33 区灯带实现。Nothing Phone (1) 的区域数量与映射不同，尚未适配。
+
+## 功能
+
+- **总览：** 一键点亮或熄灭全部灯带，开关通知闪烁与充电流光。
+- **详细控制：** 在 Phone (2) 后盖图上选择灯带，分别调节 33 个区域的亮度（0–255），并一次应用整帧。
+- **区域名称：** 按 Glyph Developer Kit 的 Phone (2) 顺序显示 A1、A2、B1、C1_1–C1_16、C2–C6、D1_1–D1_8 和 E1。
+- **场景：** 提供全部点亮、柔和常亮、C 环、A 与 D/E、全部熄灭预设；还可保存和读取一套自定义场景。
+- **自动效果：** 收到通知时依次闪烁三组灯带；接入充电器时播放由下往上的流光。效果结束后恢复上次应用的手动场景。
+- **快捷设置：** 从系统快捷设置开关全部灯带。
+- **设备检测与保活：** 启动时检查 Glyph 节点；在支持的 root 环境中安装 `service.d` 看门狗，尝试维持通知监听和充电触发。
+
+## 设备与权限要求
+
+- Android 13 或更高版本（`minSdk 33`）。
+- Nothing Phone (2) 的 33 区 Glyph 硬件，以及可写的 `/sys/class/leds/led_strips/` 节点。设备没有所需节点时，应用会提示不支持。
+- 可用的 `su` root 权限。通知闪烁还需要在系统设置中授予通知使用权。
+- 保活功能需要支持 `/data/adb/service.d/` 的 root 环境，例如相应配置的 KernelSU 或 Magisk。不同 ROM 的后台限制可能影响效果。
+
+硬件识别以实际 Glyph 节点为准；仅凭系统显示的品牌或型号无法可靠判断混刷设备的硬件能力。
+
+## 安装与使用
+
+1. 从 [Releases](https://github.com/Chengdong-Yu/Glyph-Controller/releases) 下载 APK 并安装。
+2. 打开应用，授予 root 权限。主页显示硬件和灯带状态。
+3. 在主页使用总开关，或进入「详细控制 Glyph」选择区域、调节亮度并点按「应用到 Glyph 灯带」。预设和保存的场景在应用前只改变预览。
+4. 如需通知闪烁，打开对应开关并点按「授权通知使用权」。如需充电流光，保持对应开关开启。
+5. 如需快捷开关，在系统快捷设置编辑页添加 Glyph 图块。
+
+应用会在支持的 root 环境中把看门狗脚本安装到 `/data/adb/service.d/glyph_keepalive.sh`。卸载应用前，可在 root 终端执行以下命令停止并移除该脚本；若仍继续使用应用，它可能在下次启动时重新安装脚本：
+
+```sh
+su -c 'sh /data/adb/service.d/glyph_keepalive.sh --stop; rm -f /data/adb/service.d/glyph_keepalive.sh'
+```
+
+## 构建
+
+需要 **JDK 21** 和 Android SDK（API 35）。在 Windows PowerShell 7 中：
+
+```powershell
+$env:JAVA_HOME = 'C:\path\to\jdk-21'
+$env:ANDROID_HOME = 'C:\path\to\Android\Sdk'
+.\gradlew.bat assembleRelease
+```
+
+生成的 APK 位于 `app/build/outputs/apk/release/app-release.apk`。当前 Gradle 配置使用 **debug 签名**构建 release 变体，发布或重新签名时请注意签名一致性。
+
+## 实现概览
+
+- `RootGlyphClient` 通过持久化的 `su` shell 写入 33 值 `frame_brightness`。
+- `GlyphEffectCoordinator` 协调手动操作、通知闪烁和充电流光，防止同时写入相互覆盖。
+- `GlyphPowerState` 保存已应用的亮度帧；`GlyphSceneStore` 单独保存一套自定义场景。
+- `RootKeepAlive` 安装应用内置的 `glyph_keepalive.sh`，脚本在开机后监控应用进程和充电状态。
+
+Phone (2) 的区域名称和后盖图参考 [Nothing Glyph Developer Kit](https://github.com/Nothing-Developer-Programme/Glyph-Developer-Kit)。
+
+## 许可证
+
+[MIT](LICENSE)

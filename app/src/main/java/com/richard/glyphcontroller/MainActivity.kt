@@ -4,14 +4,19 @@ import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Log
 import android.widget.Button
 import android.widget.TextView
+import com.google.android.material.color.DynamicColors
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.switchmaterial.SwitchMaterial
 
 class MainActivity : Activity() {
 
-    private lateinit var mClient: RootGlyphClient
+    private var mClient: RootGlyphClient? = null
     private var mIsOn = false
+    private var mRootAvailable = false
+    private var mToggleInProgress = false
 
     private lateinit var tvStatus: TextView
     private lateinit var tvNotify: TextView
@@ -22,6 +27,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        DynamicColors.applyToActivityIfAvailable(this)
         setContentView(R.layout.activity_main)
 
         tvStatus = findViewById(R.id.tvStatus)
@@ -31,20 +37,53 @@ class MainActivity : Activity() {
         swNotify = findViewById(R.id.swNotify)
         swCharger = findViewById(R.id.swCharger)
 
-        mClient = RootGlyphClient()
-
-        if (mClient.isRootAvailable()) {
-            tvStatus.setText(R.string.status_root_ok)
-            btnToggle.isEnabled = true
-            // root 保活 + 充电监控：安装 service.d 看门狗（幂等）
-            RootKeepAlive.ensureInstalled(this, mClient)
-        } else {
-            tvStatus.setText(R.string.status_no_root)
-            btnToggle.isEnabled = false
-        }
+        mIsOn = GlyphPowerState.isOn(this)
+        tvStatus.setText(R.string.status_unknown)
+        btnToggle.isEnabled = false
+        val showUnsupportedDialog = savedInstanceState == null
+        val client = RootGlyphClient()
+        Thread {
+            val rootAvailable = client.isRootAvailable()
+            val glyphSupported = GlyphHardware.isSupported(rootAvailable)
+            if (rootAvailable && glyphSupported != false) {
+                // root 保活 + 充电监控：安装 service.d 看门狗（幂等）
+                RootKeepAlive.ensureInstalled(applicationContext, client)
+            }
+            runOnUiThread {
+                if (isDestroyed) {
+                    Thread { client.destroy() }.start()
+                    return@runOnUiThread
+                }
+                if (glyphSupported == false) {
+                    Thread { client.destroy() }.start()
+                    tvStatus.setText(R.string.status_no_glyph)
+                    btnToggle.isEnabled = false
+                    if (showUnsupportedDialog) {
+                        MaterialAlertDialogBuilder(this)
+                            .setTitle(R.string.glyph_unsupported_title)
+                            .setMessage(R.string.glyph_unsupported_message)
+                            .setPositiveButton(android.R.string.ok, null)
+                            .show()
+                    }
+                } else if (rootAvailable) {
+                    mClient = client
+                    mRootAvailable = true
+                    mIsOn = GlyphPowerState.isOn(this)
+                    renderPowerState()
+                } else {
+                    client.destroy()
+                    tvStatus.setText(R.string.status_no_root)
+                    btnToggle.isEnabled = false
+                }
+            }
+        }.start()
 
         btnToggle.setOnClickListener {
-            if (mIsOn) turnOff() else turnOnAll()
+            togglePower()
+        }
+
+        findViewById<Button>(R.id.btnDetail).setOnClickListener {
+            startActivity(Intent(this, GlyphDetailActivity::class.java))
         }
 
         btnListener.setOnClickListener {
@@ -64,7 +103,31 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        mIsOn = GlyphPowerState.isOn(this)
+        if (mRootAvailable) renderPowerState()
         refreshNotifyState()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus && mRootAvailable) {
+            mIsOn = GlyphPowerState.isOn(this)
+            renderPowerState()
+        }
+    }
+
+    private fun renderPowerState() {
+        val frame = GlyphPowerState.getFrame(this)
+        mIsOn = frame.any { it > 0 }
+        tvStatus.setText(
+            when {
+                !mIsOn -> R.string.status_all_off
+                frame.all { it == 255 } -> R.string.status_all_on
+                else -> R.string.status_custom
+            }
+        )
+        btnToggle.setText(if (mIsOn) R.string.btn_turn_off else R.string.btn_turn_on)
+        btnToggle.isEnabled = !mToggleInProgress
     }
 
     private fun refreshNotifyState() {
@@ -79,24 +142,40 @@ class MainActivity : Activity() {
         return listeners != null && listeners.contains(packageName)
     }
 
-    private fun turnOnAll() {
-        mClient.turnOnAll()
-        mIsOn = true
-        tvStatus.setText(R.string.status_all_on)
-        btnToggle.setText(R.string.btn_turn_off)
-    }
-
-    private fun turnOff() {
-        mClient.turnOff()
-        mIsOn = false
-        tvStatus.setText(R.string.status_all_off)
-        btnToggle.setText(R.string.btn_turn_on)
+    private fun togglePower() {
+        val client = mClient ?: return
+        if (mToggleInProgress) return
+        mToggleInProgress = true
+        btnToggle.isEnabled = false
+        Thread {
+            var success = false
+            var rootAvailable = false
+            try {
+                rootAvailable = client.isRootAvailable()
+                if (rootAvailable) success = GlyphEffectCoordinator.toggleManual(applicationContext)
+            } catch (e: Exception) {
+                Log.e("GlyphController", "Failed to toggle glyphs", e)
+            }
+            runOnUiThread {
+                if (isDestroyed) return@runOnUiThread
+                mToggleInProgress = false
+                if (success) {
+                    mIsOn = GlyphPowerState.isOn(this)
+                    renderPowerState()
+                } else if (rootAvailable) {
+                    tvStatus.setText(R.string.status_write_failed)
+                    btnToggle.isEnabled = true
+                } else {
+                    mRootAvailable = false
+                    tvStatus.setText(R.string.status_no_root)
+                    btnToggle.isEnabled = false
+                }
+            }
+        }.start()
     }
 
     override fun onDestroy() {
-        if (this::mClient.isInitialized) {
-            mClient.destroy()
-        }
+        mClient?.let { client -> Thread { client.destroy() }.start() }
         super.onDestroy()
     }
 
