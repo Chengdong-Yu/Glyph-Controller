@@ -1,6 +1,6 @@
 # Glyph Controller
 
-一款面向 **Nothing Phone (2)** 的 Android Glyph 灯带控制应用。应用通过 root 直接写入设备的 Glyph LED 节点，无需 Nothing 官方 SDK。它提供 33 区亮度控制、场景预设、通知闪烁、充电流光和快捷设置开关。
+一款面向 **Nothing Phone (2)** 的 Android Glyph 灯带控制应用。应用通过 root 直接写入设备的 Glyph LED 节点，无需 Nothing 官方 SDK。界面采用 Miuix Compose，提供 33 区亮度控制、场景预设、通知闪烁、充电流光和快捷设置开关。
 
 > 当前版本仅针对 Phone (2) 的 33 区灯带实现。Nothing Phone (1) 的区域数量与映射不同，尚未适配。
 
@@ -10,9 +10,11 @@
 - **详细控制：** 在 Phone (2) 后盖图上选择灯带，分别调节 33 个区域的亮度（0–255），并一次应用整帧。
 - **区域名称：** 按 Glyph Developer Kit 的 Phone (2) 顺序显示 A1、A2、B1、C1_1–C1_16、C2–C6、D1_1–D1_8 和 E1。
 - **场景：** 提供全部点亮、柔和常亮、C 环、A 与 D/E、全部熄灭预设；还可保存和读取一套自定义场景。
-- **自动效果：** 收到通知时依次闪烁三组灯带；接入充电器时播放由下往上的流光。效果结束后恢复上次应用的手动场景。
+- **自动效果：** 收到通知时依次闪烁三组灯带；通知闪烁开启后可单独设置免打扰时是否暂停。接入充电器时播放由下往上的流光。效果结束后恢复上次应用的手动场景。
 - **快捷设置：** 从系统快捷设置开关全部灯带。
 - **设备检测与保活：** 启动时检查 Glyph 节点；在支持的 root 环境中安装 `service.d` 看门狗，尝试维持通知监听和充电触发。
+- **状态恢复：** 进程重新启动时恢复上次应用的手动场景；详细控制页在旋转或系统重建后恢复编辑草稿和选中区域。
+- **故障提示：** 区分未获得 root、节点不存在和检测失败，提供重试；通知状态根据监听服务的实际连接显示。
 
 ## 设备与权限要求
 
@@ -39,7 +41,7 @@ su -c 'sh /data/adb/service.d/glyph_keepalive.sh --stop; rm -f /data/adb/service
 
 ## 构建
 
-需要 **JDK 21** 和 Android SDK（API 35）。在 Windows PowerShell 7 中：
+需要 **JDK 21** 和 Android SDK（API 37）。构建会从 Maven 仓库获取 Miuix 0.9.4、Compose 和 AndroidX Activity Compose。在 Windows PowerShell 7 中：
 
 ```powershell
 $env:JAVA_HOME = 'C:\path\to\jdk-21'
@@ -52,11 +54,19 @@ $env:ANDROID_HOME = 'C:\path\to\Android\Sdk'
 ## 实现概览
 
 - `RootGlyphClient` 通过持久化的 `su` shell 写入 33 值 `frame_brightness`。
+- `MainActivity` 和 `GlyphDetailActivity` 使用 Miuix Compose；`GlyphPhonePreview` 在 Compose 画布中绘制真实后盖图和 33 个可点选区域。
 - `GlyphEffectCoordinator` 协调手动操作、通知闪烁和充电流光，防止同时写入相互覆盖。
+- `GlyphSession` 管理效果优先级和恢复；`GlyphRuntime` 合并后台恢复请求，`GlyphListenerState` 跟踪通知监听连接。
 - `GlyphPowerState` 保存已应用的亮度帧；`GlyphSceneStore` 单独保存一套自定义场景。
 - `RootKeepAlive` 安装应用内置的 `glyph_keepalive.sh`，脚本在开机后监控应用进程和充电状态。
 
+看门狗的 Android 框架命令有超时限制，失败后逐步延长重试间隔（最多 120 秒）。最近一次失败记录在 `/data/adb/glyphcontroller/last_failure`，日志标签为 `GlyphKA`。进程仍存活时也会定期请求应用检查通知监听连接。
+
+Release 开启 R8 代码压缩、混淆和资源裁剪；图标与后盖图采用保留原尺寸的无损 WebP。发布时应一并保存 `app/build/outputs/mapping/release/mapping.txt`，用于还原混淆后的崩溃堆栈。
+
 Phone (2) 的区域名称和后盖图参考 [Nothing Glyph Developer Kit](https://github.com/Nothing-Developer-Programme/Glyph-Developer-Kit)。
+
+应用界面使用 [Miuix 0.9.4](https://github.com/compose-miuix-ui/miuix)（Apache-2.0）。
 
 ## 许可证
 

@@ -2,7 +2,6 @@ package com.richard.glyphcontroller
 
 import android.content.Context
 import android.util.Log
-import java.util.concurrent.TimeUnit
 
 /** Installs and supervises the root watchdog in KernelSU/Magisk service.d. */
 object RootKeepAlive {
@@ -14,9 +13,7 @@ object RootKeepAlive {
     private var sInstalled = false
 
     @Synchronized
-    fun ensureInstalled(context: Context, client: RootGlyphClient?) {
-        if (client == null || !client.isRootAvailable()) return
-        if (GlyphHardware.isSupported(rootAvailable = true) == false) return
+    fun ensureInstalled(context: Context) {
         if (sInstalled && daemonRunning()) return
 
         try {
@@ -60,13 +57,12 @@ object RootKeepAlive {
     }
 
     /** Keep notification-listener registration outside the watchdog script. */
-    fun ensureListenerRegistered() {
+    fun ensureListenerRegistered(): Boolean =
         runRoot(
-            "cmd notification allow_listener " +
+            "timeout -k 1 6 cmd notification allow_listener " +
                 quote("$PKG/.GlyphNotificationService") +
                 " >/dev/null 2>&1"
         )
-    }
 
     private fun writeScript(context: Context) {
         context.assets.open(TMP_NAME).use { source ->
@@ -81,25 +77,11 @@ object RootKeepAlive {
     }
 
     private fun runRoot(command: String, logFailure: Boolean = true): Boolean {
-        try {
-            val process = ProcessBuilder("su", "-c", command)
-                .redirectErrorStream(true)
-                .start()
-            if (!process.waitFor(30, TimeUnit.SECONDS)) {
-                process.destroyForcibly()
-                Log.e(TAG, "root command timed out")
-                return false
-            }
-            val output = process.inputStream.bufferedReader().use { it.readText().trim() }
-            if (process.exitValue() != 0) {
-                if (logFailure) Log.e(TAG, "root command failed (${process.exitValue()}): $output")
-                return false
-            }
-            return true
-        } catch (e: Exception) {
-            if (logFailure) Log.e(TAG, "root command could not run", e)
-            return false
+        val result = RootCommand.run(command, 30)
+        if (!result.success && logFailure) {
+            Log.e(TAG, "Root command failed (timeout=${result.timedOut}): ${result.output}")
         }
+        return result.success
     }
 
     private fun quote(value: String): String = "'" + value.replace("'", "'\\''") + "'"

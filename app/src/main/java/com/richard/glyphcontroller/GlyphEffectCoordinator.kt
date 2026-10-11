@@ -3,69 +3,51 @@ package com.richard.glyphcontroller
 import android.content.Context
 import android.util.Log
 
-/** One owner for LED writes, shared by the UI, Quick Settings, and transient effects. */
+/** One serialized owner of hardware writes and the persisted manual frame. */
 object GlyphEffectCoordinator {
-    enum class Effect(val priority: Int) {
-        NOTIFICATION(1),
-        CHARGING(2)
-    }
-
-    class Lease internal constructor(val id: Long, val effect: Effect)
-
     private val lock = Any()
     private val client = RootGlyphClient()
-    private var nextLeaseId = 0L
-    private var activeLease: Lease? = null
+    private val session = GlyphSession { frame, sync ->
+        if (frame.any { it > 0 }) client.setZoneColors(frame, sync) else client.turnOff()
+    }
 
-    /** A manual tap takes precedence over every animation. Persist only confirmed writes. */
+    class Readiness(val hardware: GlyphHardware.Status, val restored: Boolean) {
+        val ready: Boolean get() = hardware == GlyphHardware.Status.READY && restored
+    }
+
+    fun checkAndRestore(context: Context): Readiness = synchronized(lock) {
+        val status = GlyphHardware.probe(client)
+        Readiness(status, status == GlyphHardware.Status.READY && session.restore(GlyphPowerState.getFrame(context)))
+    }
+
     fun toggleManual(context: Context): Boolean = synchronized(lock) {
-        val wasOn = GlyphPowerState.isOn(context)
-        applyManualFrame(context, IntArray(GlyphPowerState.ZONE_COUNT) { if (wasOn) 0 else 255 })
+        val on = GlyphPowerState.isOn(context)
+        applyManualFrame(context, IntArray(GlyphFrame.ZONE_COUNT) { if (on) 0 else 255 })
     }
 
-    /** A detailed frame takes precedence over transient effects and becomes their restore target. */
     fun applyManualFrame(context: Context, frame: IntArray): Boolean = synchronized(lock) {
-        if (frame.size != GlyphPowerState.ZONE_COUNT || frame.any { it !in 0..255 }) return@synchronized false
-        if (!hardwareReady()) return@synchronized false
-
-        val previous = GlyphPowerState.getFrame(context)
-        activeLease = null
-        if (applyFrame(frame) && GlyphPowerState.setFrame(context, frame)) {
-            return@synchronized true
-        }
-        // A failed write or state save must not leave a cancelled effect visible.
-        if (!applyFrame(previous)) Log.e(TAG, "Unable to restore the previous Glyph frame")
-        false
+        if (!GlyphFrame.valid(frame) || !hardwareReady()) return@synchronized false
+        session.manual(frame, GlyphPowerState.getFrame(context)) { GlyphPowerState.setFrame(context, it) }
     }
 
-    fun beginEffect(effect: Effect): Lease? = synchronized(lock) {
-        val current = activeLease
-        if (current != null && current.effect.priority >= effect.priority) return@synchronized null
+    fun beginEffect(context: Context, effect: GlyphSession.Effect): GlyphSession.Lease? = synchronized(lock) {
         if (!hardwareReady()) return@synchronized null
-
-        Lease(++nextLeaseId, effect).also { activeLease = it }
+        session.begin(effect, GlyphPowerState.getFrame(context))
     }
 
-    /** False means the effect lost ownership or the hardware rejected the frame. */
-    fun renderFrame(lease: Lease, frame: IntArray): Boolean = synchronized(lock) {
-        if (activeLease?.id != lease.id) return@synchronized false
-        client.setZoneColors(frame)
+    fun isCurrentOwner(lease: GlyphSession.Lease?): Boolean = synchronized(lock) {
+        session.isCurrentOwner(lease)
     }
 
-    /** Restore the user's manual state only if this effect still owns the LEDs. */
-    fun finishEffect(context: Context, lease: Lease) = synchronized(lock) {
-        if (activeLease?.id != lease.id) return@synchronized
-        activeLease = null
-        if (!applyFrame(GlyphPowerState.getFrame(context))) {
-            Log.e(TAG, "Unable to restore Glyph frame after ${lease.effect}")
+    fun renderFrame(lease: GlyphSession.Lease, frame: IntArray, sync: Boolean = false): Boolean = synchronized(lock) {
+        session.render(lease, frame, sync)
+    }
+
+    fun finishEffect(context: Context, lease: GlyphSession.Lease) = synchronized(lock) {
+        if (!session.finish(lease, GlyphPowerState.getFrame(context))) {
+            Log.e("GlyphEffects", "Unable to restore frame after ${lease.effect}")
         }
     }
 
-    private fun hardwareReady(): Boolean =
-        client.isRootAvailable() && GlyphHardware.isSupported(rootAvailable = true) == true
-
-    private fun applyFrame(frame: IntArray): Boolean =
-        if (frame.any { it > 0 }) client.setZoneColors(frame) else client.turnOff()
-
-    private const val TAG = "GlyphEffects"
+    private fun hardwareReady() = GlyphHardware.probe(client) == GlyphHardware.Status.READY
 }

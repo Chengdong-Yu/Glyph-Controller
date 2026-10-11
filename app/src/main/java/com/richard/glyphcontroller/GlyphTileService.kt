@@ -1,38 +1,50 @@
 package com.richard.glyphcontroller
 
-import android.os.Handler
-import android.os.Looper
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Quick Settings tile: one tap toggles all Glyph lights.
  * State is persisted so the tile reflects the last action across restarts.
  */
 class GlyphTileService : TileService() {
-    private var mToggling = false
+    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var toggling = false
 
     override fun onStartListening() {
         updateTile()
     }
 
     override fun onClick() {
-        if (mToggling) return
-        mToggling = true
-        Thread {
+        if (toggling) return
+        toggling = true
+        scope.launch {
             try {
-                if (!GlyphEffectCoordinator.toggleManual(applicationContext)) {
+                val success = withContext(Dispatchers.Default) {
+                    GlyphEffectCoordinator.toggleManual(applicationContext)
+                }
+                if (!success) {
                     Log.w("GlyphTile", "Glyph toggle was not applied")
                 }
             } catch (e: Exception) {
                 Log.e("GlyphTile", "Failed to toggle glyphs", e)
-            }
-            Handler(Looper.getMainLooper()).post {
+            } finally {
                 updateTile()
-                mToggling = false
+                toggling = false
             }
-        }.start()
+        }
+    }
+
+    override fun onDestroy() {
+        scope.cancel()
+        super.onDestroy()
     }
 
     private fun updateTile() {

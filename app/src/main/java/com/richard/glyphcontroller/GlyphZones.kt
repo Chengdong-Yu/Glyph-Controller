@@ -50,7 +50,7 @@ object GlyphSceneStore {
     private const val KEY_CUSTOM = "custom_frame"
 
     fun save(context: Context, frame: IntArray): Boolean {
-        if (frame.size != GlyphPowerState.ZONE_COUNT || frame.any { it !in 0..255 }) return false
+        if (!GlyphFrame.valid(frame)) return false
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(KEY_CUSTOM, frame.joinToString(","))
             .commit()
@@ -59,10 +59,6 @@ object GlyphSceneStore {
     fun load(context: Context): IntArray? {
         val saved = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(KEY_CUSTOM, null) ?: return null
-        val values = saved.split(',').map { it.toIntOrNull() }
-        if (values.size != GlyphPowerState.ZONE_COUNT || values.any { it == null || it !in 0..255 }) {
-            return null
-        }
-        return IntArray(GlyphPowerState.ZONE_COUNT) { values[it]!! }
+        return GlyphFrame.decode(saved)
     }
 }

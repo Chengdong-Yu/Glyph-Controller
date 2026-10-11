@@ -3,24 +3,12 @@ package com.richard.glyphcontroller
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
-import android.util.Log
 
-/** 空的粘性服务：root 看门狗用它把被杀的进程拉活；拉活的同时顺带修复监控循环 */
+/** Root watchdog entry point; recovery is serialized and coalesced process-wide. */
 class KeepAliveService : Service() {
-
     override fun onBind(intent: Intent?): IBinder? = null
-
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.d("GlyphKeepAlive", "resurrected")
-        val client = RootGlyphClient()
-        Thread {
-            try {
-                RootKeepAlive.ensureInstalled(this, client)
-                RootKeepAlive.ensureListenerRegistered()
-            } finally {
-                client.destroy()
-            }
-        }.start()
+        GlyphRuntime.ensure(applicationContext)
         return START_STICKY
     }
 }

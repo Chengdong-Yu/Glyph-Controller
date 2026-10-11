@@ -1,18 +1,21 @@
 plugins {
     id 'com.android.application'
-    id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.plugin.compose'
 }
 
 android {
     namespace 'com.richard.glyphcontroller'
-    compileSdk 35
+    compileSdk {
+        version = release(37) { minorApiLevel = 0 }
+    }
+    buildFeatures { compose true }
 
     defaultConfig {
         applicationId "com.richard.glyphcontroller"
         minSdk 33
         targetSdk 35
-        versionCode 22
-        versionName "1.21"
+        versionCode 29
+        versionName "1.28"
         resourceConfigurations += ["zh", "en"]
     }
 
@@ -31,14 +34,13 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
-    }
-    kotlinOptions {
-        jvmTarget = '1.8'
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
 }
 
 dependencies {
-    implementation 'com.google.android.material:material:1.12.0'
+    implementation 'androidx.activity:activity-compose:1.13.0'
+    implementation 'top.yukonga.miuix.kmp:miuix-ui-android:0.9.4'
+    implementation 'top.yukonga.miuix.kmp:miuix-preference-android:0.9.4'
 }

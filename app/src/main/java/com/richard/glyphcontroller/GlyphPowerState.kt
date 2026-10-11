@@ -10,7 +10,7 @@ object GlyphPowerState {
     private const val PREFS = "glyph_state"
     private const val KEY_ON = "all_on"
     private const val KEY_FRAME = "manual_frame"
-    const val ZONE_COUNT = 33
+    const val ZONE_COUNT = GlyphFrame.ZONE_COUNT
 
     fun isOn(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_ON, false)
@@ -18,10 +18,7 @@ object GlyphPowerState {
     fun getFrame(context: Context): IntArray {
         val preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val saved = preferences.getString(KEY_FRAME, null)
-        val values = saved?.split(',')?.map { it.toIntOrNull() }
-        if (values != null && values.size == ZONE_COUNT && values.all { it != null && it in 0..255 }) {
-            return IntArray(ZONE_COUNT) { values[it]!! }
-        }
+        GlyphFrame.decode(saved)?.let { return it }
         // Existing installs only have the all-on flag; keep their previous state.
         val level = if (preferences.getBoolean(KEY_ON, false)) 255 else 0
         return IntArray(ZONE_COUNT) { level }
@@ -29,7 +26,7 @@ object GlyphPowerState {
 
     /** Called off the main thread after the driver confirms the new state. */
     fun setFrame(context: Context, frame: IntArray): Boolean {
-        if (frame.size != ZONE_COUNT || frame.any { it !in 0..255 }) return false
+        if (!GlyphFrame.valid(frame)) return false
         val on = frame.any { it > 0 }
         val saved = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
@@ -48,6 +45,4 @@ object GlyphPowerState {
         return true
     }
 
-    fun setOn(context: Context, on: Boolean): Boolean =
-        setFrame(context, IntArray(ZONE_COUNT) { if (on) 255 else 0 })
 }

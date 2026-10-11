@@ -37,7 +37,7 @@ stop_daemon() {
 
     # Wait until the old process has removed its PID file.
     attempt=0
-    while [ "$attempt" -lt 5 ]; do
+    while [ "$attempt" -lt 12 ]; do
         daemon_running || return 0
         attempt=$((attempt + 1))
         sleep 1
@@ -90,14 +90,26 @@ charging_state() {
     esac
 }
 
+# Keep each Android framework command bounded, including a hard-kill deadline.
+bounded() {
+    timeout -k 1 6 "$@"
+}
+
+record_failure() {
+    printf '%s %s\n' "$(date -Iseconds)" "$1" > "$STATE_DIR/last_failure"
+    log_message "$1"
+}
+
 start_service() {
-    if ! result=$(am startservice --user 0 -n "$1" 2>&1); then
-        log_message "Unable to start $1: $result"
+    result=$(bounded am startservice --user 0 -n "$1" 2>&1)
+    result_code=$?
+    if [ "$result_code" -ne 0 ]; then
+        record_failure "start $1 failed (exit=$result_code): $result"
         return 1
     fi
     case "$result" in
         *Error*|*Exception*)
-            log_message "Unable to start $1: $result"
+            record_failure "start $1 failed: $result"
             return 1
             ;;
     esac
@@ -105,37 +117,79 @@ start_service() {
 }
 
 wake_app() {
-    # MIUI marks the package stopped after a swipe-away and rejects service
-    # starts. A no-display activity launch clears that state without opening UI.
-    if ! result=$(am start --user 0 -n "$PKG/.WakeActivity" 2>&1); then
-        log_message "Unable to wake app: $result"
+    # MIUI can mark the package stopped. The no-display activity clears that state.
+    result=$(bounded am start --user 0 -n "$PKG/.WakeActivity" 2>&1)
+    result_code=$?
+    if [ "$result_code" -ne 0 ]; then
+        record_failure "wake failed (exit=$result_code): $result"
         return 1
     fi
     case "$result" in
-        *Error*|*Exception*)
-            log_message "Unable to wake app: $result"
-            return 1
-            ;;
+        *Error*|*Exception*) record_failure "wake failed: $result"; return 1 ;;
     esac
     return 0
 }
 
-rebind_listener() {
-    # A MIUI swipe-away force-stops the package and drops the notification
-    # listener binding. Starting the process alone does not restore it.
-    if ! result=$(cmd notification allow_listener "$PKG/.GlyphNotificationService" 0 2>&1); then
-        log_message "Unable to rebind notification listener: $result"
-        return 1
-    fi
-    return 0
+recover_service() {
+    start_service "$1" || { wake_app && start_service "$1"; }
 }
 
 configure_background_access() {
-    dumpsys deviceidle whitelist +"$PKG" >/dev/null 2>&1 || :
-    appops set "$PKG" RUN_ANY_IN_BACKGROUND allow >/dev/null 2>&1 || :
-    am set-standby-bucket "$PKG" exempted >/dev/null 2>&1 || :
-    appops set "$PKG" AUTO_START allow >/dev/null 2>&1 || :
-    appops set "$PKG" BOOT_COMPLETED allow >/dev/null 2>&1 || :
+    bounded dumpsys deviceidle whitelist +"$PKG" >/dev/null 2>&1 || :
+    bounded appops set "$PKG" RUN_ANY_IN_BACKGROUND allow >/dev/null 2>&1 || :
+    bounded am set-standby-bucket "$PKG" exempted >/dev/null 2>&1 || :
+    bounded appops set "$PKG" AUTO_START allow >/dev/null 2>&1 || :
+    bounded appops set "$PKG" BOOT_COMPLETED allow >/dev/null 2>&1 || :
+}
+
+monotonic_seconds() {
+    read -r uptime_value unused < /proc/uptime
+    echo "${uptime_value%%.*}"
+}
+
+backoff() {
+    delay=$(( $1 * 2 ))
+    [ "$delay" -gt 120 ] && delay=120
+    echo "$delay"
+}
+
+check_health() {
+    now=$(monotonic_seconds)
+    [ "$now" -lt "$next_probe" ] && return
+    next_probe=$((now + 10))
+    if pidof "$PKG" >/dev/null 2>&1 && [ "$now" -lt "$next_health" ]; then
+        return
+    fi
+    # A living process is not evidence of a healthy notification connection.
+    # The service repairs only a disconnected listener, and honors feature settings.
+    if recover_service "$PKG/.KeepAliveService"; then
+        health_delay=10
+        next_health=$(( $(monotonic_seconds) + 60 ))
+    else
+        next_probe=$(( $(monotonic_seconds) + health_delay ))
+        next_health=$next_probe
+        health_delay=$(backoff "$health_delay")
+    fi
+}
+
+check_charger() {
+    current=$(charging_state)
+    if [ "$current" = 0 ]; then
+        previous=0
+        next_charge=0
+        charge_delay=2
+        return
+    fi
+    now=$(monotonic_seconds)
+    [ "$previous" = 0 ] && [ "$now" -ge "$next_charge" ] || return
+    if recover_service "$PKG/.ChargingSweepService"; then
+        previous=1
+        charge_delay=2
+        log_message "charger connected"
+    else
+        next_charge=$(( $(monotonic_seconds) + charge_delay ))
+        charge_delay=$(backoff "$charge_delay")
+    fi
 }
 
 run_daemon() {
@@ -156,36 +210,19 @@ run_daemon() {
     configure_background_access
 
     previous=$(charging_state)
-    tick=0
+    health_delay=10
+    charge_delay=2
+    next_probe=0
+    next_health=0
+    next_charge=0
+    next_log=0
     while :; do
-        if [ $((tick % 10)) -eq 0 ] && ! pidof "$PKG" >/dev/null 2>&1; then
-            if start_service "$PKG/.KeepAliveService"; then
-                rebind_listener
-            elif wake_app && start_service "$PKG/.KeepAliveService"; then
-                rebind_listener
-            fi
-        elif [ $((tick % 60)) -eq 0 ]; then
-            # Also repair a listener that was dropped while the process lived.
-            rebind_listener
-        fi
-
-        current=$(charging_state)
-        if [ "$current" = 1 ] && [ "$previous" = 0 ]; then
-            if start_service "$PKG/.ChargingSweepService"; then
-                log_message "charger connected"
-                previous=1
-            elif wake_app && start_service "$PKG/.ChargingSweepService"; then
-                rebind_listener
-                log_message "charger connected"
-                previous=1
-            fi
-        else
-            previous=$current
-        fi
-
-        tick=$((tick + 1))
-        if [ $((tick % 300)) -eq 0 ]; then
+        check_health
+        check_charger
+        now=$(monotonic_seconds)
+        if [ "$now" -ge "$next_log" ]; then
             log_message "watchdog alive"
+            next_log=$((now + 300))
         fi
         sleep 1
     done

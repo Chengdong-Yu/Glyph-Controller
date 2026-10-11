@@ -1,8 +1,5 @@
 <resources>
     <string name="app_name">Glyph 灯带控制</string>
-    <string name="status_label">当前状态</string>
-    <string name="status_unknown">未知</string>
-    <string name="status_root_ok">Root 正常，可以控制灯带</string>
     <string name="status_no_root">未获取 Root 权限！</string>
     <string name="status_no_glyph">未检测到 Glyph 灯带</string>
     <string name="status_write_failed">灯带操作失败，请重试</string>
@@ -15,12 +12,17 @@
     <string name="btn_turn_off">全部熄灭</string>
     <string name="charger_hint">插入充电器时，灯带将从下往上流光一次（root 看门狗监控中）</string>
     <string name="sw_notify">通知闪烁（来通知三段爆闪）</string>
+    <string name="sw_notify_pause_dnd">免打扰时暂停闪烁</string>
+    <string name="notify_pause_dnd_hint">需先开启通知闪烁。免打扰期间不因通知亮灯。</string>
     <string name="sw_charger">充电流光（插入充电器触发）</string>
+    <string name="sw_volume">音量指示器（跟随音量调节）</string>
+    <string name="volume_hint">按音量键时，主环 16 段灯带实时显示当前音量比例</string>
     <string name="notify_label">通知闪烁</string>
     <string name="btn_listener">授权通知使用权</string>
     <string name="notify_ready">通知闪烁：已就绪</string>
     <string name="notify_need_listener">通知闪烁：请先点击上方按钮授权通知使用权</string>
-    <string name="notify_hint">来通知时，最下方、主环右上方、相机灯带依次迅速闪烁一次</string>
+    <string name="notify_hint">来通知时，最下方、主环右上方、相机灯带依次闪烁</string>
+    <string name="notify_paused_dnd">通知闪烁：免打扰期间已暂停</string>
     <string name="hint_root">此应用通过 root 直接写入 sysfs 控制灯带，无需前台限制</string>
     <string name="tile_label">Glyph 全亮</string>
     <string name="tile_subtitle_on">全部点亮</string>
@@ -51,8 +53,6 @@
     <string name="detail_scene_save_failed">场景保存失败</string>
     <string name="detail_scene_missing">还没有保存的场景</string>
     <string name="detail_all_zones">33 个独立区域</string>
-    <string name="detail_zone_order_hint">名称按 Phone (2) 驱动帧顺序排列；选中后可在上方查看对应 LED ID。</string>
-    <string name="detail_zone_button">%1$s，%2$s，亮度 %3$d / 255</string>
     <string name="detail_current">正在显示上次应用的 Glyph 场景</string>
     <string name="detail_unsaved">预览改动尚未写入灯带</string>
     <string name="detail_apply">应用到 Glyph 灯带</string>
@@ -69,4 +69,10 @@
     <string name="zone_group_ring_right">环形右侧竖条</string>
     <string name="zone_group_dot">底部圆点</string>
     <string name="zone_group_lower">底部竖条</string>
+    <string name="btn_retry_hardware">重新检测</string>
+    <string name="status_check_failed">Glyph 检测未完成，请重试</string>
+    <string name="status_restore_failed">未能恢复上次灯光状态，请重试</string>
+    <string name="notify_off">通知闪烁：已关闭</string>
+    <string name="notify_recovering">通知监听：正在恢复连接…</string>
+    <string name="notify_disconnected">通知监听：连接已断开，将自动重试</string>
 </resources>

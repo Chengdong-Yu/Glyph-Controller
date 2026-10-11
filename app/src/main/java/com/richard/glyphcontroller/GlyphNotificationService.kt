@@ -4,34 +4,49 @@ import android.app.Notification
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 
 /**
  * 通知触发闪烁：来通知时三组灯带依次迅速亮起并熄灭一次——
  * 最下方 D1 + E1 -> C1 上弧末段 -> A1 + A2 相机灯带。
+ * 使用 Kotlin 协程调度，并在服务就绪时维护音量指示器监听。
  */
 class GlyphNotificationService : NotificationListenerService() {
 
-    private val mLock = Any()
-    private var mFlashing = false
-    private var mKeepAliveInstalled = false
+    private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    private val flashMutex = Mutex()
+    private var flashJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
-        Log.d(TAG, "service created")
-        // 开机时系统会自动绑定通知监听 -> 借机安装/修复 root 监控循环（幂等）
-        if (!mKeepAliveInstalled) {
-            mKeepAliveInstalled = true
-            Thread {
-                val client = RootGlyphClient()
-                try {
-                    RootKeepAlive.ensureInstalled(this, client)
-                    // Notification-listener registration can be lost after MIUI force-stop.
-                    RootKeepAlive.ensureListenerRegistered()
-                } finally {
-                    client.destroy()
-                }
-            }.start()
-        }
+        GlyphRuntime.ensure(applicationContext)
+        GlyphVolumeCoordinator.start(applicationContext)
+    }
+
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        GlyphListenerState.onConnected()
+        GlyphRuntime.ensure(applicationContext)
+        GlyphVolumeCoordinator.start(applicationContext)
+    }
+
+    override fun onListenerDisconnected() {
+        super.onListenerDisconnected()
+        GlyphListenerState.onDisconnected()
+        GlyphRuntime.ensure(applicationContext)
+    }
+
+    override fun onDestroy() {
+        GlyphListenerState.onDisconnected()
+        serviceScope.cancel()
+        super.onDestroy()
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
@@ -39,43 +54,44 @@ class GlyphNotificationService : NotificationListenerService() {
         if (!getSharedPreferences("settings", MODE_PRIVATE).getBoolean("notify_enabled", true)) {
             return
         }
+        if (GlyphDoNotDisturb.shouldPauseNotificationFlash(this)) return
         val n = sbn?.notification ?: return
         // 跳过分组摘要和常驻通知，避免重复触发
         if ((n.flags and (Notification.FLAG_GROUP_SUMMARY or Notification.FLAG_ONGOING_EVENT)) != 0) {
             return
         }
-        synchronized(mLock) {
-            if (mFlashing) return
-            mFlashing = true
+
+        serviceScope.launch {
+            if (!flashMutex.tryLock()) return@launch
+            try {
+                flashJob = launch { runFlash() }
+                flashJob?.join()
+            } finally {
+                flashMutex.unlock()
+            }
         }
-        Thread(mFlash).start()
     }
 
-    private val mFlash = Runnable {
-        val lease = GlyphEffectCoordinator.beginEffect(GlyphEffectCoordinator.Effect.NOTIFICATION)
+    private suspend fun runFlash() {
+        if (GlyphDoNotDisturb.shouldPauseNotificationFlash(this)) return
+        val lease = GlyphEffectCoordinator.beginEffect(applicationContext, GlyphSession.Effect.NOTIFICATION)
         if (lease == null) {
             Log.d(TAG, "Glyph unavailable or higher-priority effect active")
-            synchronized(mLock) {
-                mFlashing = false
-            }
-            return@Runnable
+            return
         }
         try {
-            val off = IntArray(33)
+            val off = IntArray(GlyphPowerState.ZONE_COUNT)
             for (g in GROUPS) {
-                val on = IntArray(33)
+                if (GlyphDoNotDisturb.shouldPauseNotificationFlash(this)) return
+                val on = IntArray(GlyphPowerState.ZONE_COUNT)
                 for (idx in g) on[idx] = 255
-                if (!GlyphEffectCoordinator.renderFrame(lease, on)) return@Runnable
-                Thread.sleep(ON_MS)
-                if (!GlyphEffectCoordinator.renderFrame(lease, off)) return@Runnable
-                Thread.sleep(GAP_MS)
+                if (!GlyphEffectCoordinator.renderFrame(lease, on, sync = false)) return
+                delay(ON_MS)
+                if (!GlyphEffectCoordinator.renderFrame(lease, off, sync = false)) return
+                delay(GAP_MS)
             }
-        } catch (ignored: InterruptedException) {
         } finally {
             GlyphEffectCoordinator.finishEffect(this, lease)
-            synchronized(mLock) {
-                mFlashing = false
-            }
         }
     }
 

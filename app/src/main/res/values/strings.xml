@@ -1,8 +1,5 @@
 <resources>
     <string name="app_name">Glyph Controller</string>
-    <string name="status_label">Status</string>
-    <string name="status_unknown">Unknown</string>
-    <string name="status_root_ok">Root granted, glyphs ready</string>
     <string name="status_no_root">Root access denied</string>
     <string name="status_no_glyph">Glyph LEDs not detected</string>
     <string name="status_write_failed">Could not change the lights. Tap to retry.</string>
@@ -15,12 +12,17 @@
     <string name="btn_turn_off">Turn all off</string>
     <string name="charger_hint">Plugging in a charger plays a bottom-up sweep once (watched by the root daemon)</string>
     <string name="sw_notify">Notification flash</string>
+    <string name="sw_notify_pause_dnd">Pause in Do Not Disturb</string>
+    <string name="notify_pause_dnd_hint">Requires notification flash. Suppresses Glyph flashes while Do Not Disturb is on.</string>
     <string name="sw_charger">Charging sweep</string>
+    <string name="sw_volume">Volume indicator</string>
+    <string name="volume_hint">Lights up the 16-segment Glyph ring according to the volume level</string>
     <string name="notify_label">Notification flash</string>
     <string name="btn_listener">Grant notification access</string>
     <string name="notify_ready">Notification flash: ready</string>
     <string name="notify_need_listener">Notification flash: grant access with the button above</string>
-    <string name="notify_hint">On a new notification, the bottom bar, the upper-right arc and the camera strips flash once in sequence</string>
+    <string name="notify_hint">On a new notification, three Glyph groups flash in sequence.</string>
+    <string name="notify_paused_dnd">Notification flash: paused by Do Not Disturb</string>
     <string name="hint_root">Drives the glyphs by writing sysfs directly as root, with no foreground restriction</string>
     <string name="tile_label">Glyph all-on</string>
     <string name="tile_subtitle_on">All on</string>
@@ -51,8 +53,6 @@
     <string name="detail_scene_save_failed">Could not save the scene</string>
     <string name="detail_scene_missing">No saved scene yet</string>
     <string name="detail_all_zones">33 zones</string>
-    <string name="detail_zone_order_hint">Names follow the Phone (2) driver frame order. Select one to see its LED ID above.</string>
-    <string name="detail_zone_button">%1$s, %2$s, brightness %3$d of 255</string>
     <string name="detail_current">Showing the last applied Glyph scene</string>
     <string name="detail_unsaved">Changes in this preview have not been sent to the lights</string>
     <string name="detail_apply">Apply to Glyph</string>
@@ -69,4 +69,10 @@
     <string name="zone_group_ring_right">Right ring bar</string>
     <string name="zone_group_dot">Bottom dot</string>
     <string name="zone_group_lower">Bottom bar</string>
+    <string name="btn_retry_hardware">Check again</string>
+    <string name="status_check_failed">Could not check Glyph hardware. Please retry.</string>
+    <string name="status_restore_failed">Could not restore the saved lights. Please retry.</string>
+    <string name="notify_off">Notification flash: off</string>
+    <string name="notify_recovering">Notification listener: reconnecting…</string>
+    <string name="notify_disconnected">Notification listener: disconnected; automatic recovery will retry</string>
 </resources>

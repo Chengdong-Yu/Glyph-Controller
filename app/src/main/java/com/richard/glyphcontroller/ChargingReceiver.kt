@@ -16,16 +16,7 @@ class ChargingReceiver : BroadcastReceiver() {
             } catch (e: Exception) {
                 Log.w("GlyphCharger", "start sweep failed: $e")
             }
-            // 顺带修复 root 监控循环（进程刚被广播唤醒时 sInstalled 为 false）
-            val app = context.applicationContext
-            Thread {
-                val client = RootGlyphClient()
-                try {
-                    RootKeepAlive.ensureInstalled(app, client)
-                } finally {
-                    client.destroy()
-                }
-            }.start()
+            GlyphRuntime.ensure(context.applicationContext)
         }
     }
 }
