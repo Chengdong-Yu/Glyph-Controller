@@ -8,17 +8,22 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
+import androidx.core.graphics.withSave
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.math.hypot
 import kotlin.math.roundToInt
@@ -26,12 +31,12 @@ import kotlin.math.roundToInt
 /** Compose preview of the actual Phone (2) back, with the original 33-zone hit map. */
 @Composable
 fun GlyphPhonePreview(frame: IntArray, selected: Int, onSelect: (Int) -> Unit) {
-    val context = LocalContext.current
-    val bitmap = remember { BitmapFactory.decodeResource(context.resources, R.drawable.phone2_glyph_map) }
+    val resources = LocalResources.current
+    val bitmap = remember(resources) { BitmapFactory.decodeResource(resources, R.drawable.phone2_glyph_map) }
     val geometry = remember { GlyphPhoneGeometry() }
     val accent = MiuixTheme.colorScheme.primary.toArgb()
-    val description = context.getString(R.string.zone_preview_description)
-    Canvas(Modifier.fillMaxWidth().aspectRatio(bitmap.width / 1185f)
+    val description = stringResource(R.string.zone_preview_description)
+    Canvas(Modifier.fillMaxWidth().aspectRatio(bitmap.width / 1185f).clip(RoundedCornerShape(22.dp))
         .semantics { contentDescription = description }
         .pointerInput(geometry, onSelect) {
             detectTapGestures { tap ->
@@ -42,14 +47,14 @@ fun GlyphPhonePreview(frame: IntArray, selected: Int, onSelect: (Int) -> Unit) {
         drawRoundRect(Color(0xFF16191E))
         drawIntoCanvas { canvas ->
             val native = canvas.nativeCanvas
-            val save = native.save()
-            val scale = size.width / bitmap.width.toFloat()
-            native.scale(scale, scale)
-            native.translate(0f, -330f)
-            native.clipRect(0f, 330f, bitmap.width.toFloat(), 1515f)
-            native.drawBitmap(bitmap, 0f, 0f, geometry.imagePaint)
-            geometry.draw(native, frame, selected, accent)
-            native.restoreToCount(save)
+            native.withSave {
+                val imageScale = size.width / bitmap.width.toFloat()
+                scale(imageScale, imageScale)
+                translate(0f, -330f)
+                clipRect(0f, 330f, bitmap.width.toFloat(), 1515f)
+                drawBitmap(bitmap, 0f, 0f, geometry.imagePaint)
+                geometry.draw(this, frame, selected, accent)
+            }
         }
     }
 }

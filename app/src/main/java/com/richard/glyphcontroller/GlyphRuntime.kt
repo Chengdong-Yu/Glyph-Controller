@@ -20,7 +20,9 @@ object GlyphRuntime {
             try {
                 val readiness = GlyphEffectCoordinator.checkAndRestore(app)
                 if (readiness.hardware == GlyphHardware.Status.READY) {
-                    RootKeepAlive.ensureInstalled(app)
+                    if (RootKeepAlive.autoInstallEnabled(app)) {
+                        RootKeepAlive.ensureInstalled(app)
+                    }
                     GlyphListenerState.repair(app)
                     GlyphVolumeCoordinator.start(app)
                 }

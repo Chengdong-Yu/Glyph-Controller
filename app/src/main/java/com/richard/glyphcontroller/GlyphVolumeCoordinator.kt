@@ -16,6 +16,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileInputStream
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
 
 /**
@@ -24,15 +25,18 @@ import kotlin.math.roundToInt
  *
  * 核心优化：
  * 1. 即时生效（0ms 延迟）：调节音量时取消阶梯插值与渐显延迟，瞬时点亮目标段位。
- * 2. 满音量长按保持：监听硬件 /dev/input/event3 按键中断，当音量已达到最大值时，
+ * 2. 按键抢先响应：监听硬件 /dev/input/event2 与 event3，在系统音量广播到达前预估新音量并点亮。
+ * 3. 满音量长按保持：当音量已达到最大值时，
  *    按住音量增加键保持 C1 灯环 16 段全部常亮，松开后 1.2 秒自然平滑淡出。
- * 3. 动态平滑淡出：停止按键后驻留 1.2 秒，随后连续非线性平滑淡出并恢复原态。
+ * 4. 动态平滑淡出：停止按键后驻留 1.2 秒，随后连续非线性平滑淡出并恢复原态。
  */
 object GlyphVolumeCoordinator {
     private const val TAG = "GlyphVolume"
     private const val VOLUME_CHANGED_ACTION = "android.media.VOLUME_CHANGED_ACTION"
     private const val EXTRA_VOLUME_STREAM_TYPE = "android.media.EXTRA_VOLUME_STREAM_TYPE"
     private const val EXTRA_VOLUME_STREAM_VALUE = "android.media.EXTRA_VOLUME_STREAM_VALUE"
+    private const val KEY_VOLUME_DOWN = 114
+    private const val KEY_VOLUME_UP = 115
 
     // C1 灯环段位定义：索引 3..18，共 16 段
     private const val C1_START_INDEX = 3
@@ -40,7 +44,7 @@ object GlyphVolumeCoordinator {
 
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var animationJob: Job? = null
-    private var inputMonitorJob: Job? = null
+    private val inputMonitorJobs = mutableMapOf<String, Job>()
 
     @Volatile private var targetSegments = 0f
     @Volatile private var currentSegments = 0f
@@ -49,6 +53,7 @@ object GlyphVolumeCoordinator {
     @Volatile private var isVolumeUpHeldAtMax = false
     @Volatile private var lastActiveStream = AudioManager.STREAM_MUSIC
     private var registered = false
+    private val lastKnownVolumes = ConcurrentHashMap<Int, Int>()
 
     private val supportedStreams = intArrayOf(
         AudioManager.STREAM_MUSIC,
@@ -87,51 +92,63 @@ object GlyphVolumeCoordinator {
                 }
             }
         }
-        startInputMonitor(app)
+        captureCurrentVolumes(app)
+        startInputMonitors(app)
     }
 
-    private fun startInputMonitor(context: Context) {
+    private fun captureCurrentVolumes(context: Context) {
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+        supportedStreams.forEach { stream ->
+            lastKnownVolumes[stream] = audioManager.getStreamVolume(stream)
+        }
+    }
+
+    private fun startInputMonitors(context: Context) {
         synchronized(this) {
-            if (inputMonitorJob?.isActive == true) return
-            inputMonitorJob = scope.launch(Dispatchers.IO) {
-                val app = context.applicationContext
-                val eventFile = File("/dev/input/event3")
+            listOf("/dev/input/event2", "/dev/input/event3").forEach { path ->
+                if (inputMonitorJobs[path]?.isActive == true) return@forEach
+                inputMonitorJobs[path] = scope.launch(Dispatchers.IO) {
+                    val app = context.applicationContext
+                    val eventFile = File(path)
 
-                Log.d(TAG, "Input monitor started, waiting for /dev/input/event3")
-                while (isActive) {
-                    if (!eventFile.exists() || !eventFile.canRead()) {
-                        delay(1000L)
-                        continue
-                    }
-                    try {
-                        FileInputStream(eventFile).use { fis ->
-                            Log.d(TAG, "Successfully opened /dev/input/event3 for hardware key monitoring")
-                            val buffer = ByteArray(24)
-                            while (isActive) {
-                                var offset = 0
-                                while (offset < 24) {
-                                    val read = fis.read(buffer, offset, 24 - offset)
-                                    if (read < 0) break
-                                    offset += read
-                                }
-                                if (offset < 24) break
+                    Log.d(TAG, "Input monitor started, waiting for $path")
+                    while (isActive) {
+                        if (!eventFile.exists() || !eventFile.canRead()) {
+                            delay(1000L)
+                            continue
+                        }
+                        try {
+                            FileInputStream(eventFile).use { fis ->
+                                Log.d(TAG, "Successfully opened $path for hardware key monitoring")
+                                val buffer = ByteArray(24)
+                                while (isActive) {
+                                    var offset = 0
+                                    while (offset < 24) {
+                                        val read = fis.read(buffer, offset, 24 - offset)
+                                        if (read < 0) break
+                                        offset += read
+                                    }
+                                    if (offset < 24) break
 
-                                val type = (buffer[16].toInt() and 0xFF) or ((buffer[17].toInt() and 0xFF) shl 8)
-                                val code = (buffer[18].toInt() and 0xFF) or ((buffer[19].toInt() and 0xFF) shl 8)
-                                val value = (buffer[20].toInt() and 0xFF) or
+                                    val type = (buffer[16].toInt() and 0xFF) or
+                                        ((buffer[17].toInt() and 0xFF) shl 8)
+                                    val code = (buffer[18].toInt() and 0xFF) or
+                                        ((buffer[19].toInt() and 0xFF) shl 8)
+                                    val value = (buffer[20].toInt() and 0xFF) or
                                         ((buffer[21].toInt() and 0xFF) shl 8) or
                                         ((buffer[22].toInt() and 0xFF) shl 16) or
                                         ((buffer[23].toInt() and 0xFF) shl 24)
 
-                                // 1 = EV_KEY, 115 = KEY_VOLUMEUP
-                                if (type == 1 && code == 115) {
-                                    handleVolumeUpEvent(app, value)
+                                    // 1 = EV_KEY, 114/115 = KEY_VOLUMEDOWN/KEY_VOLUMEUP
+                                    if (type == 1 && (code == KEY_VOLUME_DOWN || code == KEY_VOLUME_UP)) {
+                                        handleVolumeKeyEvent(app, code, value)
+                                    }
                                 }
                             }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Input reader $path failed, retrying: ${e.message}")
+                            delay(1000L)
                         }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Input event reader error, retrying: ${e.message}")
-                        delay(1000L)
                     }
                 }
             }
@@ -147,33 +164,41 @@ object GlyphVolumeCoordinator {
         }
     }
 
-    private fun handleVolumeUpEvent(context: Context, value: Int) {
+    private fun handleVolumeKeyEvent(context: Context, keyCode: Int, value: Int) {
         val settings = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
         if (!settings.getBoolean("volume_enabled", true)) return
+
+        if (value == 0) {
+            if (keyCode == KEY_VOLUME_UP && isVolumeUpHeldAtMax) {
+                isVolumeUpHeldAtMax = false
+                deadline = System.currentTimeMillis() + 1200L
+            }
+            return
+        }
+        if (value != 1 && value != 2) return
 
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
         val stream = getActiveStream(audioManager)
         val maxVolume = audioManager.getStreamMaxVolume(stream).coerceAtLeast(1)
-        val curVolume = audioManager.getStreamVolume(stream)
-
-        Log.d(TAG, "handleVolumeUpEvent: value=$value volume=$curVolume/$maxVolume")
-        if (value == 1 || value == 2) {
-            // 按下或长按重复事件
-            if (curVolume >= maxVolume) {
-                isVolumeUpHeldAtMax = true
-                targetSegments = C1_SEGMENTS_COUNT.toFloat()
-                currentSegments = targetSegments
-                alpha = 1.0f
-                deadline = System.currentTimeMillis() + 1200L
-                triggerAnimation(context)
-            }
-        } else if (value == 0) {
-            // 松开按键
-            if (isVolumeUpHeldAtMax) {
-                isVolumeUpHeldAtMax = false
-                deadline = System.currentTimeMillis() + 1200L
-            }
+        val minVolume = getMinVolume(audioManager, stream)
+        val current = audioManager.getStreamVolume(stream)
+        val known = lastKnownVolumes[stream]
+        val systemAlreadyAdjusted = known != null && current != known
+        val direction = if (keyCode == KEY_VOLUME_UP) 1 else -1
+        val predicted = if (systemAlreadyAdjusted) {
+            lastKnownVolumes[stream] = current
+            current
+        } else {
+            (current + direction).coerceIn(minVolume, maxVolume)
         }
+
+        lastActiveStream = stream
+        isVolumeUpHeldAtMax = keyCode == KEY_VOLUME_UP && predicted >= maxVolume
+        Log.d(
+            TAG,
+            "hardware key: code=$keyCode value=$value current=$current predicted=$predicted/$maxVolume"
+        )
+        showVolume(context, stream, predicted, minVolume, maxVolume)
     }
 
     fun onVolumeChanged(context: Context, streamType: Int, currentVal: Int? = null) {
@@ -184,13 +209,19 @@ object GlyphVolumeCoordinator {
         val stream = if (streamType in supportedStreams) streamType else AudioManager.STREAM_MUSIC
         lastActiveStream = stream
         val maxVolume = audioManager.getStreamMaxVolume(stream).coerceAtLeast(1)
-        val minVolume = try {
-            audioManager.getStreamMinVolume(stream)
-        } catch (_: Throwable) {
-            0
-        }
+        val minVolume = getMinVolume(audioManager, stream)
         val current = if (currentVal != null && currentVal >= 0) currentVal else audioManager.getStreamVolume(stream)
+        lastKnownVolumes[stream] = current
+        showVolume(context, stream, current, minVolume, maxVolume)
+    }
 
+    private fun getMinVolume(audioManager: AudioManager, stream: Int): Int = try {
+        audioManager.getStreamMinVolume(stream)
+    } catch (_: Throwable) {
+        0
+    }
+
+    private fun showVolume(context: Context, stream: Int, current: Int, minVolume: Int, maxVolume: Int) {
         val range = (maxVolume - minVolume).coerceAtLeast(1)
         val normalized = (current - minVolume).coerceIn(0, range)
         val ratio = normalized.toFloat() / range.toFloat()

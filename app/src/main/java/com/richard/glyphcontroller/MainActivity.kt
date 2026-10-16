@@ -3,16 +3,18 @@ package com.richard.glyphcontroller
 import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.background
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
@@ -20,7 +22,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.core.content.edit
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
@@ -32,10 +37,13 @@ import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
@@ -52,6 +60,8 @@ class MainActivity : ComponentActivity() {
     private var volumeEnabled by mutableStateOf(true)
     private var listenerStatus by mutableStateOf(GlyphListenerState.Status.OFF)
     private var doNotDisturb by mutableStateOf(false)
+    private var keepAliveStatus by mutableStateOf(RootKeepAlive.Status.UNKNOWN)
+    private var keepAliveBusy by mutableStateOf(false)
     private var unsupportedShown = false
     private var showUnsupported by mutableStateOf(false)
     private var refreshJob: Job? = null
@@ -83,31 +93,35 @@ class MainActivity : ComponentActivity() {
                     volumeEnabled = volumeEnabled,
                     listenerStatus = listenerStatus,
                     doNotDisturb = doNotDisturb,
+                    keepAliveStatus = keepAliveStatus,
+                    keepAliveBusy = keepAliveBusy,
                     onToggle = ::togglePower,
                     onRetry = ::checkHardware,
                     onDetail = { startActivity(Intent(this, GlyphDetailActivity::class.java)) },
                     onNotificationChange = { enabled ->
                         notifyEnabled = enabled
-                        settings.edit().putBoolean("notify_enabled", enabled).apply()
+                        settings.edit { putBoolean("notify_enabled", enabled) }
                         if (enabled) GlyphRuntime.ensure(applicationContext)
                         listenerStatus = GlyphListenerState.status(this)
                     },
                     onPauseNotificationDuringDndChange = { enabled ->
                         pauseNotificationDuringDnd = enabled
-                        settings.edit().putBoolean(GlyphDoNotDisturb.PAUSE_NOTIFICATION_SETTING, enabled).apply()
+                        settings.edit { putBoolean(GlyphDoNotDisturb.PAUSE_NOTIFICATION_SETTING, enabled) }
                     },
                     onChargerChange = { enabled ->
                         chargerEnabled = enabled
-                        settings.edit().putBoolean("charger_enabled", enabled).apply()
+                        settings.edit { putBoolean("charger_enabled", enabled) }
                     },
                     onVolumeChange = { enabled ->
                         volumeEnabled = enabled
-                        settings.edit().putBoolean("volume_enabled", enabled).apply()
+                        settings.edit { putBoolean("volume_enabled", enabled) }
                         if (enabled) GlyphVolumeCoordinator.start(applicationContext)
                     },
                     onListenerSettings = {
                         startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                     },
+                    onInstallKeepAlive = ::installKeepAlive,
+                    onRemoveKeepAlive = ::removeKeepAlive,
                 )
                 WindowDialog(
                     title = getString(R.string.glyph_unsupported_title),
@@ -132,6 +146,7 @@ class MainActivity : ComponentActivity() {
         startPeriodicRefresh()
         GlyphRuntime.ensure(applicationContext)
         GlyphVolumeCoordinator.start(applicationContext)
+        refreshKeepAliveStatus()
     }
 
     override fun onPause() {
@@ -159,6 +174,52 @@ class MainActivity : ComponentActivity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus && hardwareReady && !checking && !toggling) refreshPowerState()
+    }
+
+    private fun refreshKeepAliveStatus() {
+        if (keepAliveBusy) return
+        keepAliveBusy = true
+        val app = applicationContext
+        lifecycleScope.launch(Dispatchers.Default) {
+            if (RootKeepAlive.autoInstallEnabled(app)) {
+                RootKeepAlive.ensureInstalled(app)
+            }
+            val status = RootKeepAlive.status()
+            withContext(Dispatchers.Main) {
+                if (isDestroyed || isFinishing) return@withContext
+                keepAliveStatus = status
+                keepAliveBusy = false
+            }
+        }
+    }
+
+    private fun installKeepAlive() = changeKeepAlive(install = true)
+
+    private fun removeKeepAlive() = changeKeepAlive(install = false)
+
+    private fun changeKeepAlive(install: Boolean) {
+        if (keepAliveBusy) return
+        keepAliveBusy = true
+        val app = applicationContext
+        lifecycleScope.launch(Dispatchers.Default) {
+            val success = if (install) RootKeepAlive.install(app) else RootKeepAlive.remove(app)
+            val status = RootKeepAlive.status()
+            withContext(Dispatchers.Main) {
+                if (isDestroyed || isFinishing) return@withContext
+                keepAliveStatus = status
+                keepAliveBusy = false
+                Toast.makeText(
+                    this@MainActivity,
+                    when {
+                        install && success -> R.string.keepalive_install_success
+                        install -> R.string.keepalive_install_failed
+                        success -> R.string.keepalive_remove_success
+                        else -> R.string.keepalive_remove_failed
+                    },
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
     }
 
     private fun powerStatus(frame: IntArray): String = when {
@@ -233,6 +294,8 @@ private fun HomeScreen(
     volumeEnabled: Boolean,
     listenerStatus: GlyphListenerState.Status,
     doNotDisturb: Boolean,
+    keepAliveStatus: RootKeepAlive.Status,
+    keepAliveBusy: Boolean,
     onToggle: () -> Unit,
     onRetry: () -> Unit,
     onDetail: () -> Unit,
@@ -241,8 +304,11 @@ private fun HomeScreen(
     onChargerChange: (Boolean) -> Unit,
     onVolumeChange: (Boolean) -> Unit,
     onListenerSettings: () -> Unit,
+    onInstallKeepAlive: () -> Unit,
+    onRemoveKeepAlive: () -> Unit,
 ) {
     val on = frame.any { it > 0 }
+    val activeZones = frame.count { it > 0 }
     val listenerText = when {
         listenerStatus == GlyphListenerState.Status.CONNECTED &&
             pauseNotificationDuringDnd && doNotDisturb ->
@@ -255,92 +321,237 @@ private fun HomeScreen(
             GlyphListenerState.Status.FAILED -> R.string.notify_disconnected
         }
     }
-    val context = androidx.compose.ui.platform.LocalContext.current
-    Scaffold(topBar = {
-        Text(
-            text = context.getString(R.string.app_name),
-            modifier = Modifier.fillMaxWidth()
-                .background(MiuixTheme.colorScheme.background)
-                .statusBarsPadding()
-                .padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 12.dp),
-            style = MiuixTheme.textStyles.title2,
-        )
-    }) { padding ->
+    val scrollBehavior = MiuixScrollBehavior()
+    val availabilityText = stringResource(
+        when {
+            busy -> R.string.home_device_checking
+            ready -> R.string.home_device_ready
+            else -> R.string.home_device_unavailable
+        },
+    )
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = stringResource(R.string.app_name),
+                subtitle = stringResource(R.string.home_subtitle),
+                scrollBehavior = scrollBehavior,
+            )
+        },
+    ) { padding ->
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(padding)
-                .padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
+                .verticalScroll(rememberScrollState())
+                .padding(padding)
+                .padding(start = 16.dp, end = 16.dp, bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
-            Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(24.dp)) {
-                Text("GLYPH / 02", style = MiuixTheme.textStyles.subtitle,
-                    color = MiuixTheme.colorScheme.primary)
-                Text(status, modifier = Modifier.padding(top = 14.dp),
-                    style = MiuixTheme.textStyles.title2)
-                Text(context.getString(R.string.hint_root), modifier = Modifier.padding(top = 10.dp),
+            DeviceControlCard(
+                status = status,
+                availability = availabilityText,
+                activeZones = activeZones,
+                ready = ready,
+                busy = busy,
+                on = on,
+                onToggle = onToggle,
+                onRetry = onRetry,
+            )
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SmallTitle(text = stringResource(R.string.home_control_section))
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    ArrowPreference(
+                        title = stringResource(R.string.home_studio_title),
+                        summary = stringResource(R.string.home_studio_summary),
+                        onClick = onDetail,
+                    )
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SmallTitle(text = stringResource(R.string.home_effects_section))
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    SwitchPreference(
+                        title = stringResource(R.string.sw_notify),
+                        summary = stringResource(R.string.notify_hint),
+                        checked = notifyEnabled,
+                        onCheckedChange = onNotificationChange,
+                    )
+                    AnimatedVisibility(visible = notifyEnabled) {
+                        SwitchPreference(
+                            title = stringResource(R.string.sw_notify_pause_dnd),
+                            summary = stringResource(R.string.notify_pause_dnd_hint),
+                            checked = pauseNotificationDuringDnd,
+                            onCheckedChange = onPauseNotificationDuringDndChange,
+                        )
+                    }
+                    ArrowPreference(
+                        title = stringResource(R.string.home_access_title),
+                        summary = stringResource(listenerText),
+                        onClick = onListenerSettings,
+                    )
+                    SwitchPreference(
+                        title = stringResource(R.string.sw_charger),
+                        summary = stringResource(R.string.charger_hint),
+                        checked = chargerEnabled,
+                        onCheckedChange = onChargerChange,
+                    )
+                    SwitchPreference(
+                        title = stringResource(R.string.sw_volume),
+                        summary = stringResource(R.string.volume_hint),
+                        checked = volumeEnabled,
+                        onCheckedChange = onVolumeChange,
+                    )
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SmallTitle(text = stringResource(R.string.keepalive_section))
+                KeepAliveCard(
+                    status = keepAliveStatus,
+                    busy = keepAliveBusy,
+                    onInstall = onInstallKeepAlive,
+                    onRemove = onRemoveKeepAlive,
+                )
+            }
+
+            Text(
+                text = stringResource(R.string.home_system_note),
+                modifier = Modifier.padding(horizontal = 8.dp),
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+        }
+    }
+}
+
+@Composable
+private fun KeepAliveCard(
+    status: RootKeepAlive.Status,
+    busy: Boolean,
+    onInstall: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    val statusText = stringResource(
+        when {
+            busy -> R.string.keepalive_working
+            status == RootKeepAlive.Status.RUNNING -> R.string.keepalive_running
+            status == RootKeepAlive.Status.INSTALLED -> R.string.keepalive_installed
+            status == RootKeepAlive.Status.NOT_INSTALLED -> R.string.keepalive_not_installed
+            else -> R.string.keepalive_unknown
+        },
+    )
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        insideMargin = PaddingValues(20.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.keepalive_title),
+                    style = MiuixTheme.textStyles.title4,
+                )
+                Text(
+                    text = stringResource(R.string.keepalive_hint),
                     style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                Button(
-                    onClick = onToggle,
-                    enabled = ready && !busy,
-                    modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
-                    minHeight = GlyphUiSize.PrimaryButton,
-                    colors = ButtonDefaults.buttonColorsPrimary(),
-                ) { Text(context.getString(if (on) R.string.btn_turn_off else R.string.btn_turn_on)) }
-                if (!ready && !busy) {
-                    TextButton(text = context.getString(R.string.btn_retry_hardware),
-                        onClick = onRetry, modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                        minHeight = GlyphUiSize.Button)
-                }
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
             }
+            GlyphStatusPill(
+                text = statusText,
+                active = busy || status == RootKeepAlive.Status.RUNNING,
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 18.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Button(
+                onClick = onInstall,
+                enabled = !busy,
+                modifier = Modifier.weight(1f),
+                minHeight = GlyphUiSize.Button,
+            ) {
+                Text(stringResource(R.string.keepalive_install))
+            }
+            TextButton(
+                text = stringResource(R.string.keepalive_remove),
+                onClick = onRemove,
+                enabled = !busy && status != RootKeepAlive.Status.NOT_INSTALLED,
+                modifier = Modifier.weight(1f),
+                minHeight = GlyphUiSize.Button,
+            )
+        }
+    }
+}
 
-            SmallTitle(text = context.getString(R.string.btn_detail))
-            Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(20.dp)) {
-                Text(context.getString(R.string.detail_intro), style = MiuixTheme.textStyles.body1)
-                Button(onClick = onDetail, modifier = Modifier.fillMaxWidth().padding(top = 18.dp),
-                    minHeight = GlyphUiSize.Button) {
-                    Text(context.getString(R.string.btn_detail))
-                }
-            }
-
-            SmallTitle(text = context.getString(R.string.notify_label))
-            Card(modifier = Modifier.fillMaxWidth()) {
-                SwitchPreference(
-                    title = context.getString(R.string.sw_notify),
-                    summary = context.getString(R.string.notify_hint),
-                    checked = notifyEnabled,
-                    onCheckedChange = onNotificationChange,
+@Composable
+private fun DeviceControlCard(
+    status: String,
+    availability: String,
+    activeZones: Int,
+    ready: Boolean,
+    busy: Boolean,
+    on: Boolean,
+    onToggle: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        insideMargin = PaddingValues(24.dp),
+    ) {
+        GlyphStatusPill(
+            text = availability,
+            active = ready || busy,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 22.dp),
+            horizontalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.home_device_label),
+                    style = MiuixTheme.textStyles.subtitle,
+                    color = MiuixTheme.colorScheme.primary,
                 )
-                SwitchPreference(
-                    title = context.getString(R.string.sw_notify_pause_dnd),
-                    summary = context.getString(R.string.notify_pause_dnd_hint),
-                    checked = notifyEnabled && pauseNotificationDuringDnd,
-                    enabled = notifyEnabled,
-                    onCheckedChange = onPauseNotificationDuringDndChange,
-                    modifier = Modifier.padding(start = 12.dp),
-                )
-                Text(context.getString(listenerText),
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-                    style = MiuixTheme.textStyles.body2)
-                TextButton(text = context.getString(R.string.btn_listener), onClick = onListenerSettings,
-                    modifier = Modifier.padding(start = 16.dp, bottom = 12.dp),
-                    minHeight = GlyphUiSize.Button)
-            }
-            Card(modifier = Modifier.fillMaxWidth()) {
-                SwitchPreference(
-                    title = context.getString(R.string.sw_charger),
-                    summary = context.getString(R.string.charger_hint),
-                    checked = chargerEnabled,
-                    onCheckedChange = onChargerChange,
-                )
-            }
-            Card(modifier = Modifier.fillMaxWidth()) {
-                SwitchPreference(
-                    title = context.getString(R.string.sw_volume),
-                    summary = context.getString(R.string.volume_hint),
-                    checked = volumeEnabled,
-                    onCheckedChange = onVolumeChange,
+                Text(text = status, style = MiuixTheme.textStyles.title2)
+                Text(
+                    text = stringResource(R.string.home_active_zones, activeZones),
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
             }
+            GlyphMiniature(
+                lit = on,
+                modifier = Modifier.size(width = 104.dp, height = 120.dp),
+            )
+        }
+        Button(
+            onClick = onToggle,
+            enabled = ready && !busy,
+            modifier = Modifier.fillMaxWidth().padding(top = 22.dp),
+            minHeight = GlyphUiSize.PrimaryButton,
+            colors = ButtonDefaults.buttonColorsPrimary(),
+        ) {
+            Text(stringResource(if (on) R.string.btn_turn_off else R.string.btn_turn_on))
+        }
+        if (!ready && !busy) {
+            TextButton(
+                text = stringResource(R.string.btn_retry_hardware),
+                onClick = onRetry,
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                minHeight = GlyphUiSize.Button,
+            )
         }
     }
 }
