@@ -62,11 +62,6 @@ class RootGlyphClient {
             if (!ready) {
                 Log.e(TAG, "Root shell exited before it was ready")
                 closeShell()
-            } else {
-                try {
-                    suInput?.write("chmod 644 /dev/input/event2 /dev/input/event3\n".toByteArray(Charsets.US_ASCII))
-                    suInput?.flush()
-                } catch (_: Exception) { }
             }
             ready
         } catch (e: Exception) {

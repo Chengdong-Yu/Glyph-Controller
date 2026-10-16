@@ -30,6 +30,7 @@ import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -181,14 +182,17 @@ class MainActivity : ComponentActivity() {
         keepAliveBusy = true
         val app = applicationContext
         lifecycleScope.launch(Dispatchers.Default) {
-            if (RootKeepAlive.autoInstallEnabled(app)) {
-                RootKeepAlive.ensureInstalled(app)
-            }
-            val status = RootKeepAlive.status()
-            withContext(Dispatchers.Main) {
-                if (isDestroyed || isFinishing) return@withContext
-                keepAliveStatus = status
-                keepAliveBusy = false
+            try {
+                if (RootKeepAlive.autoInstallEnabled(app)) {
+                    RootKeepAlive.ensureInstalled(app)
+                }
+                val status = RootKeepAlive.status()
+                withContext(Dispatchers.Main) {
+                    if (isDestroyed || isFinishing) return@withContext
+                    keepAliveStatus = status
+                }
+            } finally {
+                withContext(NonCancellable + Dispatchers.Main) { keepAliveBusy = false }
             }
         }
     }
@@ -202,22 +206,25 @@ class MainActivity : ComponentActivity() {
         keepAliveBusy = true
         val app = applicationContext
         lifecycleScope.launch(Dispatchers.Default) {
-            val success = if (install) RootKeepAlive.install(app) else RootKeepAlive.remove(app)
-            val status = RootKeepAlive.status()
-            withContext(Dispatchers.Main) {
-                if (isDestroyed || isFinishing) return@withContext
-                keepAliveStatus = status
-                keepAliveBusy = false
-                Toast.makeText(
-                    this@MainActivity,
-                    when {
-                        install && success -> R.string.keepalive_install_success
-                        install -> R.string.keepalive_install_failed
-                        success -> R.string.keepalive_remove_success
-                        else -> R.string.keepalive_remove_failed
-                    },
-                    Toast.LENGTH_SHORT,
-                ).show()
+            try {
+                val success = if (install) RootKeepAlive.install(app) else RootKeepAlive.remove(app)
+                val status = RootKeepAlive.status()
+                withContext(Dispatchers.Main) {
+                    if (isDestroyed || isFinishing) return@withContext
+                    keepAliveStatus = status
+                    Toast.makeText(
+                        this@MainActivity,
+                        when {
+                            install && success -> R.string.keepalive_install_success
+                            install -> R.string.keepalive_install_failed
+                            success -> R.string.keepalive_remove_success
+                            else -> R.string.keepalive_remove_failed
+                        },
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            } finally {
+                withContext(NonCancellable + Dispatchers.Main) { keepAliveBusy = false }
             }
         }
     }

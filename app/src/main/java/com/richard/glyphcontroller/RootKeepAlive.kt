@@ -97,7 +97,6 @@ object RootKeepAlive {
                 "mv -f $staged $target",
                 "sh $target --stop",
                 "pkill -f '[G]KA_LOOP' >/dev/null 2>&1 || :",
-                "rm -f /data/adb/glyphcontroller/keepalive.lock",
                 "sh $target",
                 "attempt=0",
                 "while [ \$attempt -lt 5 ]; do",

@@ -15,12 +15,15 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -387,7 +390,15 @@ private fun ZoneSelector(
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val listState = rememberLazyListState()
+    LaunchedEffect(selected) {
+        if (selected in 0 until GlyphFrame.ZONE_COUNT) {
+            val visible = listState.layoutInfo.visibleItemsInfo
+            if (visible.none { it.index == selected }) listState.animateScrollToItem(selected)
+        }
+    }
     LazyRow(
+        state = listState,
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = PaddingValues(horizontal = 2.dp),
@@ -412,13 +423,15 @@ private fun ZoneSelector(
 
 @Composable
 private fun PresetSelector(onPreset: (IntArray) -> Unit) {
-    val presets = listOf(
-        R.string.detail_preset_all to GlyphZones.presetAll(),
-        R.string.detail_preset_soft to GlyphZones.presetAll(64),
-        R.string.detail_preset_ring to GlyphZones.presetRing(),
-        R.string.detail_preset_lower to GlyphZones.presetCameraAndLower(),
-        R.string.detail_preset_off to GlyphZones.presetAll(0),
-    )
+    val presets = remember {
+        listOf(
+            R.string.detail_preset_all to GlyphZones.presetAll(),
+            R.string.detail_preset_soft to GlyphZones.presetAll(64),
+            R.string.detail_preset_ring to GlyphZones.presetRing(),
+            R.string.detail_preset_lower to GlyphZones.presetCameraAndLower(),
+            R.string.detail_preset_off to GlyphZones.presetAll(0),
+        )
+    }
     LazyRow(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),

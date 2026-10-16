@@ -7,15 +7,16 @@ import android.content.IntentFilter
 import android.media.AudioManager
 import android.util.Log
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import java.io.File
-import java.io.FileInputStream
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
 
@@ -25,7 +26,7 @@ import kotlin.math.roundToInt
  *
  * 核心优化：
  * 1. 即时生效（0ms 延迟）：调节音量时取消阶梯插值与渐显延迟，瞬时点亮目标段位。
- * 2. 按键抢先响应：监听硬件 /dev/input/event2 与 event3，在系统音量广播到达前预估新音量并点亮。
+ * 2. 按键抢先响应：通过 root 动态发现音量键输入节点（解析 /proc/bus/input/devices）并监听，在系统音量广播到达前预估新音量并点亮。
  * 3. 满音量长按保持：当音量已达到最大值时，
  *    按住音量增加键保持 C1 灯环 16 段全部常亮，松开后 1.2 秒自然平滑淡出。
  * 4. 动态平滑淡出：停止按键后驻留 1.2 秒，随后连续非线性平滑淡出并恢复原态。
@@ -37,6 +38,9 @@ object GlyphVolumeCoordinator {
     private const val EXTRA_VOLUME_STREAM_VALUE = "android.media.EXTRA_VOLUME_STREAM_VALUE"
     private const val KEY_VOLUME_DOWN = 114
     private const val KEY_VOLUME_UP = 115
+    private const val INPUT_RETRY_MIN_MS = 2_000L
+    private const val INPUT_RETRY_MAX_MS = 30_000L
+    private const val INPUT_STABLE_MS = 10_000L
 
     // C1 灯环段位定义：索引 3..18，共 16 段
     private const val C1_START_INDEX = 3
@@ -44,7 +48,7 @@ object GlyphVolumeCoordinator {
 
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var animationJob: Job? = null
-    private val inputMonitorJobs = mutableMapOf<String, Job>()
+    private var inputMonitorJob: Job? = null
 
     @Volatile private var targetSegments = 0f
     @Volatile private var currentSegments = 0f
@@ -83,7 +87,7 @@ object GlyphVolumeCoordinator {
                         app,
                         volumeReceiver,
                         filter,
-                        ContextCompat.RECEIVER_EXPORTED
+                        ContextCompat.RECEIVER_NOT_EXPORTED
                     )
                     registered = true
                     Log.d(TAG, "Volume receiver registered")
@@ -104,54 +108,128 @@ object GlyphVolumeCoordinator {
     }
 
     private fun startInputMonitors(context: Context) {
+        val app = context.applicationContext
         synchronized(this) {
-            listOf("/dev/input/event2", "/dev/input/event3").forEach { path ->
-                if (inputMonitorJobs[path]?.isActive == true) return@forEach
-                inputMonitorJobs[path] = scope.launch(Dispatchers.IO) {
-                    val app = context.applicationContext
-                    val eventFile = File(path)
-
-                    Log.d(TAG, "Input monitor started, waiting for $path")
-                    while (isActive) {
-                        if (!eventFile.exists() || !eventFile.canRead()) {
-                            delay(1000L)
-                            continue
-                        }
-                        try {
-                            FileInputStream(eventFile).use { fis ->
-                                Log.d(TAG, "Successfully opened $path for hardware key monitoring")
-                                val buffer = ByteArray(24)
-                                while (isActive) {
-                                    var offset = 0
-                                    while (offset < 24) {
-                                        val read = fis.read(buffer, offset, 24 - offset)
-                                        if (read < 0) break
-                                        offset += read
-                                    }
-                                    if (offset < 24) break
-
-                                    val type = (buffer[16].toInt() and 0xFF) or
-                                        ((buffer[17].toInt() and 0xFF) shl 8)
-                                    val code = (buffer[18].toInt() and 0xFF) or
-                                        ((buffer[19].toInt() and 0xFF) shl 8)
-                                    val value = (buffer[20].toInt() and 0xFF) or
-                                        ((buffer[21].toInt() and 0xFF) shl 8) or
-                                        ((buffer[22].toInt() and 0xFF) shl 16) or
-                                        ((buffer[23].toInt() and 0xFF) shl 24)
-
-                                    // 1 = EV_KEY, 114/115 = KEY_VOLUMEDOWN/KEY_VOLUMEUP
-                                    if (type == 1 && (code == KEY_VOLUME_DOWN || code == KEY_VOLUME_UP)) {
-                                        handleVolumeKeyEvent(app, code, value)
-                                    }
-                                }
-                            }
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Input reader $path failed, retrying: ${e.message}")
-                            delay(1000L)
-                        }
+            if (inputMonitorJob?.isActive == true) return
+            inputMonitorJob = scope.launch(Dispatchers.IO) {
+                var backoffMs = INPUT_RETRY_MIN_MS
+                while (isActive) {
+                    val startedAt = System.currentTimeMillis()
+                    val nodes = discoverVolumeKeyNodes()
+                    if (nodes.isEmpty()) {
+                        // 没有 root 或暂未找到音量键节点：退避重试，避免频繁拉起 su
+                        delay(backoffMs)
+                        backoffMs = (backoffMs * 2).coerceAtMost(INPUT_RETRY_MAX_MS)
+                        continue
+                    }
+                    Log.d(TAG, "Volume key input nodes: $nodes")
+                    coroutineScope {
+                        nodes.forEach { path -> launch { readInputNode(app, path) } }
+                    }
+                    // 读取器很快就结束说明 su 异常，按退避重试；运行较久后结束则快速重连
+                    if (System.currentTimeMillis() - startedAt < INPUT_STABLE_MS) {
+                        delay(backoffMs)
+                        backoffMs = (backoffMs * 2).coerceAtMost(INPUT_RETRY_MAX_MS)
+                    } else {
+                        backoffMs = INPUT_RETRY_MIN_MS
+                        delay(INPUT_RETRY_MIN_MS)
                     }
                 }
             }
+        }
+    }
+
+    /** 通过 root 解析 /proc/bus/input/devices，找出声明了音量加/减键能力的输入节点。 */
+    private fun discoverVolumeKeyNodes(): List<String> {
+        val result = RootCommand.run("cat /proc/bus/input/devices", 5)
+        if (!result.success) return emptyList()
+        return parseVolumeKeyNodes(result.output)
+    }
+
+    internal fun parseVolumeKeyNodes(devices: String): List<String> {
+        val wordBits = if (android.os.Process.is64Bit()) 64 else 32
+        val nodes = linkedSetOf<String>()
+        devices.split(Regex("\\r?\\n\\s*\\r?\\n")).forEach { block ->
+            var handlers: String? = null
+            var keyWords: List<String>? = null
+            block.lineSequence().forEach { raw ->
+                val line = raw.trim()
+                when {
+                    line.startsWith("H: Handlers=") -> handlers = line.removePrefix("H: Handlers=")
+                    line.startsWith("B: KEY=") ->
+                        keyWords = line.removePrefix("B: KEY=").trim().split(Regex("\\s+"))
+                }
+            }
+            val words = keyWords ?: return@forEach
+            val event = handlers
+                ?.split(Regex("\\s+"))
+                ?.firstOrNull { Regex("event\\d+").matches(it) }
+                ?: return@forEach
+            if (hasKeyBit(words, KEY_VOLUME_DOWN, wordBits) || hasKeyBit(words, KEY_VOLUME_UP, wordBits)) {
+                nodes.add("/dev/input/$event")
+            }
+        }
+        return nodes.toList()
+    }
+
+    private fun hasKeyBit(words: List<String>, bit: Int, wordBits: Int): Boolean {
+        val index = bit / wordBits
+        if (index >= words.size) return false
+        val word = words[words.size - 1 - index].toULongOrNull(16) ?: return false
+        return (word shr (bit % wordBits)) and 1uL == 1uL
+    }
+
+    /** 以 root 身份 cat 事件节点并解析 input_event，无需放宽 /dev/input 的全局权限。 */
+    private suspend fun readInputNode(context: Context, path: String) = coroutineScope {
+        if (!Regex("/dev/input/event\\d+").matches(path)) return@coroutineScope
+        val process = try {
+            ProcessBuilder("su", "-c", "cat $path 2>/dev/null").start()
+        } catch (e: Exception) {
+            Log.w(TAG, "Cannot start input reader for $path: ${e.message}")
+            return@coroutineScope
+        }
+        // 阻塞读不响应协程取消，取消时由看门狗销毁进程来打断读取
+        val watchdog = launch {
+            try {
+                awaitCancellation()
+            } finally {
+                process.destroyForcibly()
+            }
+        }
+        try {
+            // struct input_event: struct timeval (2 个 long) + u16 type + u16 code + s32 value
+            val header = if (android.os.Process.is64Bit()) 16 else 8
+            val size = header + 8
+            val buffer = ByteArray(size)
+            Log.d(TAG, "Input reader started for $path")
+            process.inputStream.use { input ->
+                while (isActive) {
+                    var offset = 0
+                    while (offset < size) {
+                        val read = input.read(buffer, offset, size - offset)
+                        if (read < 0) return@use
+                        offset += read
+                    }
+                    val type = (buffer[header].toInt() and 0xFF) or
+                        ((buffer[header + 1].toInt() and 0xFF) shl 8)
+                    val code = (buffer[header + 2].toInt() and 0xFF) or
+                        ((buffer[header + 3].toInt() and 0xFF) shl 8)
+                    val value = (buffer[header + 4].toInt() and 0xFF) or
+                        ((buffer[header + 5].toInt() and 0xFF) shl 8) or
+                        ((buffer[header + 6].toInt() and 0xFF) shl 16) or
+                        ((buffer[header + 7].toInt() and 0xFF) shl 24)
+
+                    // 1 = EV_KEY, 114/115 = KEY_VOLUMEDOWN/KEY_VOLUMEUP
+                    if (type == 1 && (code == KEY_VOLUME_DOWN || code == KEY_VOLUME_UP)) {
+                        handleVolumeKeyEvent(context, code, value)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            if (isActive) Log.w(TAG, "Input reader $path failed: ${e.message}")
+        } finally {
+            watchdog.cancel()
+            process.destroyForcibly()
         }
     }
 
@@ -306,7 +384,10 @@ object GlyphVolumeCoordinator {
 
                 delay(20L)
             }
-        } catch (_: Exception) {
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Volume animation loop failed", e)
         } finally {
             GlyphEffectCoordinator.finishEffect(context, lease)
         }

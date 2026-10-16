@@ -52,6 +52,7 @@
     <string name="tile_subtitle_on">全部点亮</string>
     <string name="tile_subtitle_off">已熄灭</string>
     <string name="tile_subtitle_custom">自定义场景</string>
+    <string name="action_back">返回</string>
     <string name="detail_title">详细控制 Glyph</string>
     <string name="detail_subtitle">编排 33 区灯光场景</string>
     <string name="detail_preview_hint">依据 Phone (2) 后盖图定位灯带。点按灯段或下方名称选择区域。</string>

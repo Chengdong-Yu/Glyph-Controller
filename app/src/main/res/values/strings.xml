@@ -52,6 +52,7 @@
     <string name="tile_subtitle_on">All on</string>
     <string name="tile_subtitle_off">Off</string>
     <string name="tile_subtitle_custom">Custom scene</string>
+    <string name="action_back">Back</string>
     <string name="detail_title">Detailed Glyph control</string>
     <string name="detail_subtitle">Compose a 33-zone light scene</string>
     <string name="detail_preview_hint">Glyph positions follow the Phone (2) back image. Tap a strip or its name below to select it.</string>

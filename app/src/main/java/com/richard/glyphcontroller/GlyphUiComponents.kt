@@ -18,6 +18,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -51,7 +52,7 @@ internal fun GlyphBackButton(onClick: () -> Unit) {
     IconButton(onClick = onClick) {
         Icon(
             imageVector = MiuixIcons.Basic.ArrowRight,
-            contentDescription = null,
+            contentDescription = stringResource(R.string.action_back),
             modifier = Modifier.graphicsLayer { scaleX = -1f },
             tint = MiuixTheme.colorScheme.onSurface,
         )
