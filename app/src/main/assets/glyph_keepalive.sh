@@ -224,7 +224,8 @@ run_daemon() {
             log_message "watchdog alive"
             next_log=$((now + 300))
         fi
-        sleep 1
+        # Framework broadcasts normally handle charger changes immediately; this is the fallback.
+        sleep 5
     done
 }
 

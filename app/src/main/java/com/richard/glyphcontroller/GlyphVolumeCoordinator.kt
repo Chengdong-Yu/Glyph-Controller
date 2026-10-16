@@ -7,6 +7,8 @@ import android.content.IntentFilter
 import android.media.AudioManager
 import android.util.Log
 import androidx.core.content.ContextCompat
+import java.io.IOException
+import java.io.InputStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -18,6 +20,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
 
@@ -42,6 +45,7 @@ object GlyphVolumeCoordinator {
     private const val INPUT_RETRY_MIN_MS = 2_000L
     private const val INPUT_RETRY_MAX_MS = 30_000L
     private const val INPUT_STABLE_MS = 10_000L
+    private const val READER_PID_TIMEOUT_MS = 2_000L
 
     // C1 灯环段位定义：索引 3..18，共 16 段
     private const val C1_START_INDEX = 3
@@ -80,6 +84,12 @@ object GlyphVolumeCoordinator {
 
     fun start(context: Context) {
         val app = context.applicationContext
+        if (!app.getSharedPreferences("settings", Context.MODE_PRIVATE)
+                .getBoolean("volume_enabled", true)
+        ) {
+            stop(app)
+            return
+        }
         synchronized(this) {
             if (!registered) {
                 try {
@@ -99,6 +109,30 @@ object GlyphVolumeCoordinator {
         }
         captureCurrentVolumes(app)
         startInputMonitors(app)
+    }
+
+    fun stop(context: Context) {
+        val app = context.applicationContext
+        val monitor: Job?
+        val animation: Job?
+        synchronized(this) {
+            if (registered) {
+                try {
+                    app.unregisterReceiver(volumeReceiver)
+                } catch (e: IllegalArgumentException) {
+                    Log.w(TAG, "Volume receiver was already unregistered", e)
+                }
+                registered = false
+            }
+            monitor = inputMonitorJob
+            inputMonitorJob = null
+            animation = animationJob
+            animationJob = null
+            isVolumeUpHeldAtMax = false
+            lastKnownVolumes.clear()
+        }
+        monitor?.cancel()
+        animation?.cancel()
     }
 
     private fun captureCurrentVolumes(context: Context) {
@@ -158,13 +192,19 @@ object GlyphVolumeCoordinator {
 
     /** 通过 root 解析 /proc/bus/input/devices，找出声明了音量加/减键能力的输入节点。 */
     private fun discoverVolumeKeyNodes(): List<String> {
-        val result = RootCommand.run("cat /proc/bus/input/devices", 5)
+        val result = RootCommand.run(
+            "cat /proc/bus/input/devices",
+            5,
+            suppressOnFailure = true,
+        )
         if (!result.success) return emptyList()
         return parseVolumeKeyNodes(result.output)
     }
 
-    internal fun parseVolumeKeyNodes(devices: String): List<String> {
-        val wordBits = if (android.os.Process.is64Bit()) 64 else 32
+    internal fun parseVolumeKeyNodes(
+        devices: String,
+        wordBits: Int = if (android.os.Process.is64Bit()) 64 else 32,
+    ): List<String> {
         val nodes = linkedSetOf<String>()
         devices.split(Regex("\\r?\\n\\s*\\r?\\n")).forEach { block ->
             var handlers: String? = null
@@ -199,10 +239,38 @@ object GlyphVolumeCoordinator {
     /** 以 root 身份 cat 事件节点并解析 input_event，无需放宽 /dev/input 的全局权限。 */
     private suspend fun readInputNode(context: Context, path: String) = coroutineScope {
         if (!Regex("/dev/input/event\\d+").matches(path)) return@coroutineScope
+        val command = "reader_pid=\$\$; echo \"\$reader_pid\"; " +
+            "(read watcher_signal || :; kill -9 \"\$reader_pid\" 2>/dev/null) " +
+            ">/dev/null 2>&1 & exec cat $path 2>/dev/null"
         val process = try {
-            ProcessBuilder("su", "-c", "cat $path 2>/dev/null").start()
+            // The background read watches the app-owned stdin pipe. Android closes that pipe
+            // when the app dies, so the root reader cannot remain orphaned after force-stop.
+            ProcessBuilder("su", "-c", command).start()
+        } catch (e: IOException) {
+            RootCommand.suppressRootAttempts()
+            Log.w(TAG, "Root denied input reader for $path: ${e.message}")
+            return@coroutineScope
         } catch (e: Exception) {
             Log.w(TAG, "Cannot start input reader for $path: ${e.message}")
+            return@coroutineScope
+        }
+        val input = process.inputStream
+        val readerPid = try {
+            readReaderPid(input, process)
+        } catch (e: CancellationException) {
+            signalReaderShutdown(process)
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Cannot read root input reader PID for $path: ${e.message}")
+            null
+        }
+        if (readerPid == null) {
+            val exited = runCatching { process.waitFor(250, java.util.concurrent.TimeUnit.MILLISECONDS) }
+                .getOrDefault(false)
+            val exitCode = if (exited) process.exitValue() else null
+            if (exitCode in setOf(1, 126, 127)) RootCommand.suppressRootAttempts()
+            signalReaderShutdown(process)
+            Log.w(TAG, "Root input reader did not provide a PID for $path (exit=$exitCode)")
             return@coroutineScope
         }
         // 阻塞读不响应协程取消，取消时由看门狗销毁进程来打断读取
@@ -210,16 +278,17 @@ object GlyphVolumeCoordinator {
             try {
                 awaitCancellation()
             } finally {
-                process.destroyForcibly()
+                signalReaderShutdown(process)
             }
         }
+        var receivedInput = false
         try {
             // struct input_event: struct timeval (2 个 long) + u16 type + u16 code + s32 value
             val header = if (android.os.Process.is64Bit()) 16 else 8
             val size = header + 8
             val buffer = ByteArray(size)
             Log.d(TAG, "Input reader started for $path")
-            process.inputStream.use { input ->
+            input.use {
                 while (isActive) {
                     var offset = 0
                     while (offset < size) {
@@ -227,6 +296,7 @@ object GlyphVolumeCoordinator {
                         if (read < 0) return@use
                         offset += read
                     }
+                    receivedInput = true
                     val type = (buffer[header].toInt() and 0xFF) or
                         ((buffer[header + 1].toInt() and 0xFF) shl 8)
                     val code = (buffer[header + 2].toInt() and 0xFF) or
@@ -246,9 +316,54 @@ object GlyphVolumeCoordinator {
             if (isActive) Log.w(TAG, "Input reader $path failed: ${e.message}")
         } finally {
             watchdog.cancel()
-            process.destroyForcibly()
+            val exited = runCatching { process.waitFor(250, java.util.concurrent.TimeUnit.MILLISECONDS) }
+                .getOrDefault(false)
+            val exitCode = if (exited) process.exitValue() else null
+            if (isActive && !receivedInput && exitCode in setOf(1, 126, 127)) {
+                RootCommand.suppressRootAttempts()
+                Log.w(TAG, "Root input reader rejected for $path (exit=$exitCode)")
+            }
+            terminateRootReader(process, readerPid)
         }
     }
+
+    private fun terminateRootReader(process: Process, pid: Long) {
+        runCatching { process.outputStream.close() }
+        if (process.isAlive && !RootCommand.areRootAttemptsSuppressed()) {
+            RootCommand.run("kill -9 $pid", 2)
+        }
+        process.destroyForcibly()
+    }
+
+    private fun signalReaderShutdown(process: Process) {
+        runCatching { process.outputStream.close() }
+        process.destroyForcibly()
+    }
+
+    private suspend fun readReaderPid(input: InputStream, process: Process): Long? =
+        withTimeoutOrNull<Long?>(READER_PID_TIMEOUT_MS) {
+            val digits = StringBuilder(12)
+            while (true) {
+                var progressed = false
+                while (input.available() > 0) {
+                    progressed = true
+                    val next = input.read()
+                    if (next < 0) return@withTimeoutOrNull null
+                    if (next == '\n'.code) return@withTimeoutOrNull digits.toString().toLongOrNull()
+                    if (next != '\r'.code && next !in '0'.code..'9'.code) {
+                        return@withTimeoutOrNull null
+                    }
+                    if (next != '\r'.code) {
+                        if (digits.length >= 12) return@withTimeoutOrNull null
+                        digits.append(next.toChar())
+                    }
+                }
+                if (!process.isAlive && input.available() == 0) return@withTimeoutOrNull null
+                if (!progressed) delay(10L)
+            }
+            @Suppress("UNREACHABLE_CODE")
+            null
+        }
 
     private fun getActiveStream(audioManager: AudioManager): Int {
         return when {

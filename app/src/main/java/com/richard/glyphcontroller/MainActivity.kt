@@ -116,7 +116,11 @@ class MainActivity : ComponentActivity() {
                     onVolumeChange = { enabled ->
                         volumeEnabled = enabled
                         settings.edit { putBoolean("volume_enabled", enabled) }
-                        if (enabled) GlyphVolumeCoordinator.start(applicationContext)
+                        if (enabled) {
+                            GlyphVolumeCoordinator.start(applicationContext)
+                        } else {
+                            GlyphVolumeCoordinator.stop(applicationContext)
+                        }
                     },
                     onListenerSettings = {
                         startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))

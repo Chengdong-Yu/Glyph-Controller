@@ -24,10 +24,9 @@ class RootGlyphClient {
         closeShell()
 
         return try {
-            val probe = RootCommand.run("id -u", 15)
+            val probe = RootCommand.run("id -u", 15, suppressOnFailure = true)
             rootCheckTimedOut = probe.timedOut
             if (!probe.success || probe.output != "0") {
-                if (!probe.timedOut) RootCommand.suppressRootAttempts(probe)
                 Log.e(TAG, "Root check failed (timeout=${probe.timedOut})")
                 return false
             }

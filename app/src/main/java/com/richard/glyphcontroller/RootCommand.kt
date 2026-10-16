@@ -31,14 +31,13 @@ internal object RootCommand {
         }
     }
 
-    @Synchronized
-    fun run(command: String, seconds: Long): Result {
+    fun run(command: String, seconds: Long, suppressOnFailure: Boolean = false): Result {
         val attemptWindow = rootAttemptWindow.get()
         if (suppressedWindow == attemptWindow) {
             return Result(null, "Root unavailable for this app-open window", attemptWindow = attemptWindow)
         }
         var process: Process? = null
-        return try {
+        val result = try {
             val child = ProcessBuilder("su", "-c", command).redirectErrorStream(true).start()
             process = child
             val output = StringBuilder()
@@ -81,5 +80,9 @@ internal object RootCommand {
                 runCatching { child.inputStream.close() }
             }
         }
+        if (suppressOnFailure && !result.success && !result.timedOut && result.output != "Interrupted") {
+            suppressRootAttempts(result)
+        }
+        return result
     }
 }

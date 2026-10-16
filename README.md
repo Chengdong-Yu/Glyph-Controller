@@ -37,22 +37,22 @@
 
 ## 构建
 
-需要 **JDK 21** 和 Android SDK（API 37）。构建会从 Maven 仓库获取 Miuix 0.9.4、Compose 和 AndroidX Activity Compose。在 Windows PowerShell 7 中：
+需要 **JDK 21** 和 Android SDK（API 37）。构建会从 Maven 仓库获取 Miuix 0.9.4、Compose 和 AndroidX Activity Compose。在 Windows PowerShell 7 中构建开发版：
 
 ```powershell
 $env:JAVA_HOME = 'C:\path\to\jdk-21'
 $env:ANDROID_HOME = 'C:\path\to\Android\Sdk'
-.\gradlew.bat assembleRelease
+.\gradlew.bat testDebugUnitTest lintDebug assembleDebug
 ```
 
-生成的 APK 位于 `app/build/outputs/apk/release/app-release.apk`。
+生成的 APK 位于 `app/build/outputs/apk/debug/app-debug.apk`。
 
 在 macOS 或 Linux 中使用随项目提供的 POSIX wrapper：
 
 ```sh
 export JAVA_HOME=/path/to/jdk-21
 export ANDROID_HOME=/path/to/android-sdk
-./gradlew assembleRelease
+./gradlew testDebugUnitTest lintDebug assembleDebug
 ```
 
 ### Release 签名
@@ -70,9 +70,9 @@ release 变体会按以下顺序查找签名配置：
 
 2. 环境变量 `GLYPH_KEYSTORE_FILE`、`GLYPH_KEYSTORE_PASSWORD`、`GLYPH_KEY_ALIAS`、`GLYPH_KEY_PASSWORD`。
 
-两者都不存在时会回退到 **debug 签名**，因此贡献者无需密钥也能构建，但这样产出的 APK 与正式发布版签名不同，不能互相覆盖安装。密钥库（`*.jks`、`*.keystore`）和密码不在仓库中，请妥善备份：密钥丢失后将无法发布可覆盖安装的更新。
+两者都不存在时，`assembleRelease` 和 `bundleRelease` 会直接失败，防止把测试签名或未签名文件误传到 Releases。贡献者无需密钥时应构建 `assembleDebug`。密钥库（`*.jks`、`*.keystore`）和密码不在仓库中，请妥善备份：密钥丢失后将无法发布可覆盖安装的更新。
 
-Release signing (English): `./gradlew assembleRelease` reads `keystore.properties` in the repo root (git-ignored) or the `GLYPH_KEYSTORE_*` environment variables listed above; without them it falls back to debug signing. Never commit the keystore or its passwords.
+Release signing (English): `./gradlew assembleRelease` reads `keystore.properties` in the repo root (git-ignored) or the `GLYPH_KEYSTORE_*` environment variables listed above. Release packaging fails when they are missing; use `assembleDebug` for development builds. Never commit the keystore or its passwords.
 
 ## 实现概览
 

@@ -22,18 +22,18 @@ def hasReleaseSigning = releaseStoreFile && releaseStorePassword && releaseKeyAl
         rootProject.file(releaseStoreFile).exists()
 
 android {
-    namespace 'com.richard.glyphcontroller'
+    namespace = 'com.richard.glyphcontroller'
     compileSdk {
         version = release(37) { minorApiLevel = 0 }
     }
-    buildFeatures { compose true }
+    buildFeatures { compose = true }
 
     defaultConfig {
-        applicationId "com.richard.glyphcontroller"
-        minSdk 33
-        targetSdk 35
-        versionCode 30
-        versionName "1.29"
+        applicationId = "com.richard.glyphcontroller"
+        minSdk = 33
+        targetSdk = 37
+        versionCode = 31
+        versionName = "1.30"
         resourceConfigurations += ["zh", "en"]
     }
 
@@ -42,25 +42,46 @@ android {
         }
         if (hasReleaseSigning) {
             release {
-                storeFile rootProject.file(releaseStoreFile)
-                storePassword releaseStorePassword
-                keyAlias releaseKeyAlias
-                keyPassword releaseKeyPassword
+                storeFile = rootProject.file(releaseStoreFile)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
             }
         }
     }
 
     buildTypes {
         release {
-            minifyEnabled true
-            shrinkResources true
-            signingConfig hasReleaseSigning ? signingConfigs.release : signingConfigs.debug
+            minifyEnabled = true
+            shrinkResources = true
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.release
+            }
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+}
+
+def verifyReleaseSigning = tasks.register('verifyReleaseSigning') {
+    group = 'verification'
+    description = 'Fails release packaging when the official signing configuration is unavailable.'
+    doLast {
+        if (!hasReleaseSigning) {
+            throw new GradleException(
+                    'Release signing is not configured. Add keystore.properties or the GLYPH_KEYSTORE_* environment variables. ' +
+                    'Use assembleDebug for an installable development APK.'
+            )
+        }
+    }
+}
+
+tasks.configureEach { task ->
+    if (task.name in ['packageRelease', 'bundleRelease']) {
+        task.dependsOn(verifyReleaseSigning)
     }
 }
 
@@ -68,4 +89,5 @@ dependencies {
     implementation 'androidx.activity:activity-compose:1.13.0'
     implementation 'top.yukonga.miuix.kmp:miuix-ui-android:0.9.4'
     implementation 'top.yukonga.miuix.kmp:miuix-preference-android:0.9.4'
+    testImplementation 'junit:junit:4.13.2'
 }

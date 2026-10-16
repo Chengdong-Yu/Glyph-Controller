@@ -1,5 +1,6 @@
 package com.richard.glyphcontroller
 
+import android.annotation.SuppressLint
 import android.content.Context
 
 /** Frame positions are 0..32; LED IDs are only shown as a hardware reference. */
@@ -49,6 +50,7 @@ object GlyphSceneStore {
     private const val PREFS = "glyph_scenes"
     private const val KEY_CUSTOM = "custom_frame"
 
+    @SuppressLint("UseKtx") // The Boolean commit result is surfaced to the UI; edit{} returns Unit.
     fun save(context: Context, frame: IntArray): Boolean {
         if (!GlyphFrame.valid(frame)) return false
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
