@@ -45,7 +45,7 @@ $env:ANDROID_HOME = 'C:\path\to\Android\Sdk'
 .\gradlew.bat assembleRelease
 ```
 
-生成的 APK 位于 `app/build/outputs/apk/release/app-release.apk`。当前 Gradle 配置使用 **debug 签名**构建 release 变体，发布或重新签名时请注意签名一致性。
+生成的 APK 位于 `app/build/outputs/apk/release/app-release.apk`。
 
 在 macOS 或 Linux 中使用随项目提供的 POSIX wrapper：
 
@@ -54,6 +54,25 @@ export JAVA_HOME=/path/to/jdk-21
 export ANDROID_HOME=/path/to/android-sdk
 ./gradlew assembleRelease
 ```
+
+### Release 签名
+
+release 变体会按以下顺序查找签名配置：
+
+1. 仓库根目录的 `keystore.properties`（已被 `.gitignore` 忽略，**切勿提交**），内容如下：
+
+   ```properties
+   storeFile=/path/to/glyph-release.jks
+   storePassword=******
+   keyAlias=glyph
+   keyPassword=******
+   ```
+
+2. 环境变量 `GLYPH_KEYSTORE_FILE`、`GLYPH_KEYSTORE_PASSWORD`、`GLYPH_KEY_ALIAS`、`GLYPH_KEY_PASSWORD`。
+
+两者都不存在时会回退到 **debug 签名**，因此贡献者无需密钥也能构建，但这样产出的 APK 与正式发布版签名不同，不能互相覆盖安装。密钥库（`*.jks`、`*.keystore`）和密码不在仓库中，请妥善备份：密钥丢失后将无法发布可覆盖安装的更新。
+
+Release signing (English): `./gradlew assembleRelease` reads `keystore.properties` in the repo root (git-ignored) or the `GLYPH_KEYSTORE_*` environment variables listed above; without them it falls back to debug signing. Never commit the keystore or its passwords.
 
 ## 实现概览
 

@@ -3,6 +3,24 @@ plugins {
     id 'org.jetbrains.kotlin.plugin.compose'
 }
 
+// Release 签名配置：优先读取仓库根目录的 keystore.properties（已被 .gitignore 忽略），
+// 其次读取环境变量 GLYPH_KEYSTORE_FILE / GLYPH_KEYSTORE_PASSWORD / GLYPH_KEY_ALIAS / GLYPH_KEY_PASSWORD。
+// 两者都没有时回退到 debug 签名，保证贡献者也能直接构建。
+def keystoreProps = new Properties()
+def keystorePropsFile = rootProject.file('keystore.properties')
+if (keystorePropsFile.exists()) {
+    keystorePropsFile.withInputStream { keystoreProps.load(it) }
+}
+def signingValue = { String propKey, String envKey ->
+    keystoreProps.getProperty(propKey) ?: System.getenv(envKey)
+}
+def releaseStoreFile = signingValue('storeFile', 'GLYPH_KEYSTORE_FILE')
+def releaseStorePassword = signingValue('storePassword', 'GLYPH_KEYSTORE_PASSWORD')
+def releaseKeyAlias = signingValue('keyAlias', 'GLYPH_KEY_ALIAS')
+def releaseKeyPassword = signingValue('keyPassword', 'GLYPH_KEY_PASSWORD')
+def hasReleaseSigning = releaseStoreFile && releaseStorePassword && releaseKeyAlias && releaseKeyPassword &&
+        rootProject.file(releaseStoreFile).exists()
+
 android {
     namespace 'com.richard.glyphcontroller'
     compileSdk {
@@ -21,7 +39,14 @@ android {
 
     signingConfigs {
         debug {
-            // release 也用 debug 签名，方便直接安装
+        }
+        if (hasReleaseSigning) {
+            release {
+                storeFile rootProject.file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
         }
     }
 
@@ -29,7 +54,7 @@ android {
         release {
             minifyEnabled true
             shrinkResources true
-            signingConfig signingConfigs.debug
+            signingConfig hasReleaseSigning ? signingConfigs.release : signingConfigs.debug
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
