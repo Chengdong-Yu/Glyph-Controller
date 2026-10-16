@@ -8,6 +8,7 @@ import android.media.AudioManager
 import android.util.Log
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -117,6 +118,10 @@ object GlyphVolumeCoordinator {
                     val startedAt = System.currentTimeMillis()
                     val nodes = discoverVolumeKeyNodes()
                     if (nodes.isEmpty()) {
+                        if (RootCommand.areRootAttemptsSuppressed()) {
+                            Log.d(TAG, "Input monitor paused until the app is opened again")
+                            break
+                        }
                         // 没有 root 或暂未找到音量键节点：退避重试，避免频繁拉起 su
                         delay(backoffMs)
                         backoffMs = (backoffMs * 2).coerceAtMost(INPUT_RETRY_MAX_MS)
@@ -124,9 +129,21 @@ object GlyphVolumeCoordinator {
                     }
                     Log.d(TAG, "Volume key input nodes: $nodes")
                     coroutineScope {
-                        nodes.forEach { path -> launch { readInputNode(app, path) } }
+                        val readerEnded = CompletableDeferred<Unit>()
+                        val readers = nodes.map { path ->
+                            launch {
+                                try {
+                                    readInputNode(app, path)
+                                } finally {
+                                    readerEnded.complete(Unit)
+                                }
+                            }
+                        }
+                        readerEnded.await()
+                        readers.forEach { it.cancel() }
+                        readers.forEach { it.join() }
                     }
-                    // 读取器很快就结束说明 su 异常，按退避重试；运行较久后结束则快速重连
+                    // 任一读取器结束就重建整组，避免另一个阻塞读取让失效节点永远得不到恢复。
                     if (System.currentTimeMillis() - startedAt < INPUT_STABLE_MS) {
                         delay(backoffMs)
                         backoffMs = (backoffMs * 2).coerceAtMost(INPUT_RETRY_MAX_MS)

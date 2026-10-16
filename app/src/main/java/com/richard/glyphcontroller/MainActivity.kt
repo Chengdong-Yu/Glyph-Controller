@@ -143,6 +143,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        RootCommand.beginRootAttemptWindow()
         checkHardware()
         startPeriodicRefresh()
         GlyphRuntime.ensure(applicationContext)
