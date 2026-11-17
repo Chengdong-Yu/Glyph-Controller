@@ -1,53 +1,36 @@
 # Glyph Controller
 
-一款面向 **Nothing Phone (2)** 的 Android Glyph 灯带控制应用。应用通过 root 直接写入设备的 Glyph LED 节点，无需 Nothing 官方 SDK。界面采用 Miuix Compose，提供 33 区亮度控制、场景预设、通知闪烁、充电流光和快捷设置开关。
+一款面向 **Nothing Phone (2)** 的 Android Glyph 灯带控制与编排应用。应用通过持久化 `su` root shell 直接读写设备的 Glyph LED `sysfs` 节点，无需依赖 Nothing 官方系统框架或 SDK。
 
-> 当前版本仅针对 Phone (2) 的 33 区灯带实现。Nothing Phone (1) 的区域数量与映射不同，尚未适配。
+应用界面全面基于 **[mochi-compose](https://github.com/feice11/mochi-compose) (`0.2.0`)** 与官方 **Nothing 外观模块 (`mochi-nothing`)** 构建，采用纯粹的暖调单色层级、标志性 `#D71921` Nothing 红点缀、系统衬线标题 + Inter 正文排版，以及针对独立数值与硬件编码的点阵字体（`Ndot57`）显示。
 
-## 功能
+> 当前版本针对 Nothing Phone (2) 的 33 区灯带硬件节点实现。Nothing Phone (1) 的区域数量与驱动映射不同，尚未适配。
 
-- **总览：** 一键点亮或熄灭全部灯带，开关通知闪烁与充电流光。
-- **详细控制：** 在 Phone (2) 后盖图上选择灯带，分别调节 33 个区域的亮度（0–255），并一次应用整帧。
-- **区域名称：** 按 Glyph Developer Kit 的 Phone (2) 顺序显示 A1、A2、B1、C1_1–C1_16、C2–C6、D1_1–D1_8 和 E1。
-- **场景：** 提供全部点亮、柔和常亮、C 环、A 与 D/E、全部熄灭预设；还可保存和读取一套自定义场景。
-- **自动效果：** 收到通知时依次闪烁三组灯带；通知闪烁开启后可单独设置免打扰时是否暂停。接入充电器时播放由下往上的流光。按下音量加减键时，C 环会立即显示调整后的音量。效果结束后恢复上次应用的手动场景。
-- **快捷设置：** 从系统快捷设置开关全部灯带。
-- **设备检测与保活：** 启动时检查 Glyph 节点；默认在支持的 root 环境中安装 `service.d` 看门狗，也可在主页一键安装、重启或移除，尝试维持通知监听和充电触发。
-- **状态恢复：** 进程重新启动时恢复上次应用的手动场景；详细控制页在旋转或系统重建后恢复编辑草稿和选中区域。
-- **故障提示：** 区分未获得 root、节点不存在和检测失败，提供重试；通知状态根据监听服务的实际连接显示。
+## 核心特性
+
+- **纯正 Nothing 外观与 Mochi 导航交互架构：**
+  - **总览 (`Overview`)：** 搭载可点触交互的 33 区矢量背板预览、点阵滚轮计数器（`MochiCounterText` + `nothingDotTextStyle`）、平均亮度线性仪表（`MochiLinearGauge`）、一键全亮/全灭总控、7 款快捷预设筛选条（`MochiChipGroup`），以及支持容器变形转场（`mochiNavSource`）的自定义场景卡片与运行状态列表。
+  - **工坊 (`Studio`)：** 真实 Phone (2) 背板舞台，支持**点按与连续拖动选区**、柔和白光扩散与 Nothing 红选区描边、**单灯段 / 整组联动**双模式（`MochiSegmentedControl`）、6 组解剖分区筛选、带阻尼刻度吸附的 `MochiListSliderRow`、批量帧编辑按钮组（`MochiButtonGroup`：同步本组 / 铺满全区 / 亮度反相 / 亮度减半），以及 `MochiSelectFrame` 可视化预设画廊。
+  - **场景槽位页 (`Scene Vault`)：** 4 槽位自定义场景管理（槽位 1 自动兼容旧版存档），支持从总览卡片展开变形或从工坊顶栏推入、共享顶栏按钮变形，以及左滑露出清空操作（`MochiSwipeRow`）。
+  - **设置 (`Settings`)：** 集中管理通知三段闪烁（含免打扰自动静默与通知使用权引导）、充电流光、0ms 延迟 16 段 C1 音量指示环、硬件灯效一键试播、`service.d` 保活看门狗（移除操作经 `MochiDialog` 二次确认），以及 Nothing 深浅色揭开转场（`MochiThemeRevealHost`）与衬线标题切换。
+- **底层性能与状态架构优化：**
+  - **Compose 结构化快照 (`@Immutable GlyphSnapshot`)：** 消除 `IntArray` 引用相等导致的冗余重组。
+  - **响应式状态控制器 (`@Stable GlyphWorkbenchController`)：** 合并 `MainActivity` 与 `GlyphDetailActivity` 重复逻辑，使用 `StateFlow` 与系统免打扰广播替代原有的 1 秒轮询协程。
+  - **零额外分配硬件灯效 (`GlyphEffects`) 与 `sysfs` 写入去重 (`RootGlyphClient`)：** 单缓冲区复用通知与充电序列，`StringBuilder` 单遍格式化 `frame_brightness` 命令并跳过重复异步帧刷新；33 区背板 `Path` 与采样点升级为进程级单例缓存。
+- **快捷设置与状态恢复：** 提供系统快捷设置图块（QS Tile），进程重启或自动灯效播放结束后自动恢复当前常亮手动场景。
 
 ## 设备与权限要求
 
 - Android 13 或更高版本（`minSdk 33`）。
-- Nothing Phone (2) 的 33 区 Glyph 硬件，以及可写的 `/sys/class/leds/led_strips/` 节点。设备没有所需节点时，应用会提示不支持。
-- 可用的 `su` root 权限。通知闪烁还需要在系统设置中授予通知使用权。
-- 保活功能需要支持 `/data/adb/service.d/` 的 root 环境，例如相应配置的 KernelSU 或 Magisk。不同 ROM 的后台限制可能影响效果。
-
-硬件识别以实际 Glyph 节点为准；仅凭系统显示的品牌或型号无法可靠判断混刷设备的硬件能力。
-
-## 安装与使用
-
-1. 从 [Releases](https://github.com/Chengdong-Yu/Glyph-Controller/releases) 下载 APK 并安装。
-2. 打开应用，授予 root 权限。主页显示硬件和灯带状态。
-3. 在主页使用总开关，或进入「详细控制 Glyph」选择区域、调节亮度并点按「应用到 Glyph 灯带」。预设和保存的场景在应用前只改变预览。
-4. 如需通知闪烁，打开对应开关并点按「授权通知使用权」。如需充电流光，保持对应开关开启。
-5. 如需快捷开关，在系统快捷设置编辑页添加 Glyph 图块。
-
-应用会在支持的 root 环境中默认把看门狗脚本安装到 `/data/adb/service.d/glyph_keepalive.sh`。可在主页「后台」区域一键安装、重启或移除脚本；手动移除后应用会记住选择，不再自动重装，直至再次点击安装。
+- Nothing Phone (2) 的 33 区 Glyph 硬件及可写的 `/sys/class/leds/led_strips/` 节点。
+- 可用的 `su` root 权限；通知闪烁需在系统设置中授予通知使用权。
+- 后台保活功能需要支持 `/data/adb/service.d/` 的 root 环境（如 KernelSU 或 Magisk）。
 
 ## 构建
 
-需要 **JDK 21** 和 Android SDK（API 37）。构建会从 Maven 仓库获取 Miuix 0.9.4、Compose 和 AndroidX Activity Compose。在 Windows PowerShell 7 中构建开发版：
+需要 **JDK 21** 和 Android SDK（API 37）。构建会从 Maven Central 获取 `io.github.feice11:mochi-compose:0.2.0`、`mochi-nothing:0.2.0`、`mochi-icons:0.2.0` 及 AndroidX Activity Compose。
 
-```powershell
-$env:JAVA_HOME = 'C:\path\to\jdk-21'
-$env:ANDROID_HOME = 'C:\path\to\Android\Sdk'
-.\gradlew.bat testDebugUnitTest lintDebug assembleDebug
-```
-
-生成的 APK 位于 `app/build/outputs/apk/debug/app-debug.apk`。
-
-在 macOS 或 Linux 中使用随项目提供的 POSIX wrapper：
+在 macOS 或 Linux 中构建并运行单测与 Lint 检查：
 
 ```sh
 export JAVA_HOME=/path/to/jdk-21
@@ -55,11 +38,21 @@ export ANDROID_HOME=/path/to/android-sdk
 ./gradlew testDebugUnitTest lintDebug assembleDebug
 ```
 
+在 Windows PowerShell 7 中构建开发版：
+
+```powershell
+$env:JAVA_HOME = 'C:\path\to\jdk-21'
+$env:ANDROID_HOME = 'C:\path\to\Android\Sdk'
+.\gradlew.bat testDebugUnitTest lintDebug assembleDebug
+```
+
+生成的开发版 APK 位于 `app/build/outputs/apk/debug/app-debug.apk`。
+
 ### Release 签名
 
-release 变体会按以下顺序查找签名配置：
+`assembleRelease` 与 `bundleRelease` 按以下顺序读取签名配置：
 
-1. 仓库根目录的 `keystore.properties`（已被 `.gitignore` 忽略，**切勿提交**），内容如下：
+1. 仓库根目录的 `keystore.properties`（已被 `.gitignore` 忽略，切勿提交）：
 
    ```properties
    storeFile=/path/to/glyph-release.jks
@@ -70,27 +63,24 @@ release 变体会按以下顺序查找签名配置：
 
 2. 环境变量 `GLYPH_KEYSTORE_FILE`、`GLYPH_KEYSTORE_PASSWORD`、`GLYPH_KEY_ALIAS`、`GLYPH_KEY_PASSWORD`。
 
-两者都不存在时，`assembleRelease` 和 `bundleRelease` 会直接失败，防止把测试签名或未签名文件误传到 Releases。贡献者无需密钥时应构建 `assembleDebug`。密钥库（`*.jks`、`*.keystore`）和密码不在仓库中，请妥善备份：密钥丢失后将无法发布可覆盖安装的更新。
+两者都不存在时正式版打包会直接中止，开发调试请使用 `assembleDebug`。
 
-Release signing (English): `./gradlew assembleRelease` reads `keystore.properties` in the repo root (git-ignored) or the `GLYPH_KEYSTORE_*` environment variables listed above. Release packaging fails when they are missing; use `assembleDebug` for development builds. Never commit the keystore or its passwords.
+## 模块架构概览
 
-## 实现概览
+- **UI 与状态控制层（Mochi + Nothing）：**
+  - `GlyphAppTheme`：唯一根级 `MochiTheme` 入口，接入 `nothingColorScheme`、`nothingControlPalette`、`nothingTextStyles`、纯色 `MochiMaterials()`、`MochiThemeRevealHost` 与 `ProvideMochiOverscroll`。
+  - `GlyphWorkbenchController`：跨 Activity 共享的 `@Stable` 状态与硬件交互控制器。
+  - `MainActivity` / `GlyphStudioScreen` / `GlyphUiComponents` / `GlyphDetailActivity`：基于 `MochiNavHost`、`MochiTabScaffold` 与 `MochiLazyCompactTitleScaffold` 的总览、工坊、场景槽位与设置页面。
+  - `GlyphPhonePreview`：进程级缓存的 33 区 Phone (2) 背板渲染与连续滑动选区画布，以及纯矢量预览器 `GlyphVectorPreview`。
+- **硬件与后台服务层：**
+  - `GlyphFrame` & `GlyphZones`：`@Immutable GlyphSnapshot` 帧模型、33 区解剖分组、光学统计与 4 槽位场景持久化（`GlyphSceneStore`）。
+  - `RootGlyphClient`：持久化 `su` shell 同步/异步写入 33 值 `frame_brightness`，含重复帧过滤与预分配命令缓冲。
+  - `GlyphEffects` / `GlyphEffectCoordinator` / `GlyphSession`：零额外分配通知闪烁与充电流光序列，按优先级租约（`NOTIFICATION < CHARGING < VOLUME`）串行管理灯带并恢复常亮帧。
+  - `GlyphVolumeCoordinator`：结合 `/dev/input/event*` root 预判与音量广播实现 0ms 延迟 C1 16 段音量环动画。
+  - `RootKeepAlive`：管理 `/data/adb/service.d/glyph_keepalive.sh` 看门狗守护进程。
 
-- `RootGlyphClient` 通过持久化的 `su` shell 写入 33 值 `frame_brightness`。
-- `MainActivity` 和 `GlyphDetailActivity` 使用 Miuix Compose；`GlyphPhonePreview` 在 Compose 画布中绘制真实后盖图和 33 个可点选区域。
-- `GlyphEffectCoordinator` 协调手动操作、通知闪烁和充电流光，防止同时写入相互覆盖。
-- `GlyphSession` 管理效果优先级和恢复；`GlyphRuntime` 合并后台恢复请求，`GlyphListenerState` 跟踪通知监听连接。
-- `GlyphPowerState` 保存已应用的亮度帧；`GlyphSceneStore` 单独保存一套自定义场景。
-- `RootKeepAlive` 安装应用内置的 `glyph_keepalive.sh`，脚本在开机后监控应用进程和充电状态。
+## 致谢与许可证
 
-看门狗的 Android 框架命令有超时限制，失败后逐步延长重试间隔（最多 120 秒）。最近一次失败记录在 `/data/adb/glyphcontroller/last_failure`，日志标签为 `GlyphKA`。进程仍存活时也会定期请求应用检查通知监听连接。
-
-Release 开启 R8 代码压缩、混淆和资源裁剪；图标与后盖图采用保留原尺寸的无损 WebP。发布时应一并保存 `app/build/outputs/mapping/release/mapping.txt`，用于还原混淆后的崩溃堆栈。
-
-Phone (2) 的区域名称和后盖图参考 [Nothing Glyph Developer Kit](https://github.com/Nothing-Developer-Programme/Glyph-Developer-Kit)。
-
-应用界面使用 [Miuix 0.9.4](https://github.com/compose-miuix-ui/miuix)（Apache-2.0）。
-
-## 许可证
-
-[MIT](LICENSE)
+- Phone (2) 区域命名与背板参考 [Nothing Glyph Developer Kit](https://github.com/Nothing-Developer-Programme/Glyph-Developer-Kit)。
+- UI 组件库与 Nothing 外观主题采用 [feice11/mochi-compose (`0.2.0`)](https://github.com/feice11/mochi-compose)（Apache-2.0；内置 Inter / Ndot57 / Ionicons 遵循其各自开源许可）。
+- 本项目基于 [MIT](LICENSE) 许可证开源。
