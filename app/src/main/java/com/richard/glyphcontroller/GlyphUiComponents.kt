@@ -1,11 +1,14 @@
 package com.richard.glyphcontroller
 
 import androidx.annotation.StringRes
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -16,6 +19,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -38,6 +42,7 @@ import ui.feice.mochi.list.MochiSwipeRow
 import ui.feice.mochi.navigation.MochiBackButton
 import ui.feice.mochi.navigation.MochiLazyCompactTitleScaffold
 import ui.feice.mochi.nothing.nothingDotTextStyle
+import ui.feice.mochi.shape.MochiRoundedRectangle
 import ui.feice.mochi.theme.MochiTheme
 
 /** Immutable curated lighting preset definition shared across Overview and Studio. */
@@ -234,10 +239,19 @@ private fun SceneSlotSwipeRow(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                GlyphVectorPreview(
-                    snapshot = snapshot ?: GlyphSnapshot.Zero,
-                    modifier = Modifier.size(width = 44.dp, height = 78.dp),
-                )
+                Box(
+                    modifier = Modifier
+                        .size(width = 48.dp, height = 80.dp)
+                        .clip(MochiRoundedRectangle(12.dp))
+                        .background(Color(0xFF101216))
+                        .padding(5.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    GlyphVectorPreview(
+                        snapshot = snapshot ?: GlyphSnapshot.Zero,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
                 Spacer(Modifier.width(16.dp))
                 Column(
                     modifier = Modifier.weight(1f),

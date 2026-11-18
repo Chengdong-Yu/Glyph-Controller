@@ -13,6 +13,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.lifecycle.lifecycleScope
@@ -35,6 +36,12 @@ class GlyphWorkbenchController(
     private val settingsPrefs = activity.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
     var colorMode by mutableStateOf(GlyphAppearancePrefs.getColorMode(activity))
+        private set
+    var useMonet by mutableStateOf(GlyphAppearancePrefs.getUseMonet(activity))
+        private set
+    var styleVariant by mutableStateOf(GlyphAppearancePrefs.getStyleVariant(activity))
+        private set
+    var seedColor by mutableStateOf(GlyphAppearancePrefs.getSeedColor(activity))
         private set
     var serifTitles by mutableStateOf(GlyphAppearancePrefs.getSerifTitles(activity))
         private set
@@ -86,9 +93,9 @@ class GlyphWorkbenchController(
     var volumeEnabled by mutableStateOf(settingsPrefs.getBoolean("volume_enabled", true))
         private set
 
-    var listenerStatus by mutableStateOf(GlyphListenerState.status(activity))
+    var listenerStatus by mutableStateOf(GlyphListenerState.Status.OFF)
         private set
-    var doNotDisturb by mutableStateOf(GlyphDoNotDisturb.isActive(activity))
+    var doNotDisturb by mutableStateOf(false)
         private set
     var keepAliveStatus by mutableStateOf(RootKeepAlive.Status.UNKNOWN)
         private set
@@ -131,11 +138,17 @@ class GlyphWorkbenchController(
         studioActionText = activity.getString(
             if (isDraftDirty) R.string.detail_unsaved else R.string.detail_current,
         )
+        listenerStatus = GlyphListenerState.status(activity)
+        doNotDisturb = GlyphDoNotDisturb.isActive(activity)
     }
 
     fun onResume() {
         colorMode = GlyphAppearancePrefs.getColorMode(activity)
+        useMonet = GlyphAppearancePrefs.getUseMonet(activity)
+        styleVariant = GlyphAppearancePrefs.getStyleVariant(activity)
+        seedColor = GlyphAppearancePrefs.getSeedColor(activity)
         serifTitles = GlyphAppearancePrefs.getSerifTitles(activity)
+
         notifyEnabled = settingsPrefs.getBoolean("notify_enabled", true)
         pauseNotificationDuringDnd = settingsPrefs.getBoolean(GlyphDoNotDisturb.PAUSE_NOTIFICATION_SETTING, true)
         chargerEnabled = settingsPrefs.getBoolean("charger_enabled", true)
@@ -311,7 +324,6 @@ class GlyphWorkbenchController(
 
     fun applyQuickPreset(snapshot: GlyphSnapshot) {
         if (!hardwareReady || busy) {
-            // Still stage into Studio offline so tapping presets remains useful without Root
             studioDraft.replace(snapshot.toIntArray())
             refreshDraftSnapshot()
             return
@@ -596,6 +608,24 @@ class GlyphWorkbenchController(
     fun updateColorMode(next: GlyphColorMode) {
         colorMode = next
         GlyphAppearancePrefs.setColorMode(activity, next)
+    }
+
+    fun updateUseMonet(enabled: Boolean) {
+        useMonet = enabled
+        GlyphAppearancePrefs.setUseMonet(activity, enabled)
+    }
+
+    fun updateStyleVariant(variant: GlyphStyleVariant) {
+        styleVariant = variant
+        GlyphAppearancePrefs.setStyleVariant(activity, variant)
+    }
+
+    fun updateSeedColor(color: Color) {
+        val opaque = color.copy(alpha = 1f)
+        seedColor = opaque
+        useMonet = false
+        GlyphAppearancePrefs.setSeedColor(activity, opaque)
+        GlyphAppearancePrefs.setUseMonet(activity, false)
     }
 
     fun updateSerifTitles(enabled: Boolean) {

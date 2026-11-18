@@ -19,7 +19,7 @@ import ui.feice.mochi.navigation.MochiNavHost
 import ui.feice.mochi.navigation.rememberMochiNavigator
 import ui.feice.mochi.utils.mochiEnableEdgeToEdge
 
-/** Standalone 33-zone Studio activity sharing [GlyphWorkbenchController] and Mochi Nothing UI. */
+/** Standalone 33-zone Studio activity sharing [GlyphWorkbenchController] and Mochi theme engine. */
 class GlyphDetailActivity : ComponentActivity() {
     private lateinit var controller: GlyphWorkbenchController
 
@@ -36,6 +36,9 @@ class GlyphDetailActivity : ComponentActivity() {
         setContent {
             GlyphAppTheme(
                 colorMode = controller.colorMode,
+                useMonet = controller.useMonet,
+                styleVariant = controller.styleVariant,
+                seedColor = controller.seedColor,
                 serifTitles = controller.serifTitles,
             ) {
                 val nav = rememberMochiNavigator(ROUTE_STUDIO)

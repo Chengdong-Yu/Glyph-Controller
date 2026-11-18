@@ -7,8 +7,9 @@
 
     <string name="home_device_model">Nothing Phone (2)</string>
     <string name="home_device_ready">Ready</string>
-    <string name="home_device_checking">Checking hardware</string>
+    <string name="home_device_checking">Checking</string>
     <string name="home_device_unavailable">Unavailable</string>
+    <string name="home_active_zones">Active zones</string>
     <string name="home_mean_output">Average brightness</string>
     <string name="home_presets_section">Quick presets</string>
     <string name="home_scenes_section">Saved scenes</string>
@@ -38,7 +39,7 @@
     <string name="detail_title">Studio</string>
     <string name="detail_apply_short">Apply</string>
     <string name="detail_revert_short">Revert</string>
-    <string name="detail_preview_hint">Tap or drag across strips on the back image to select zones.</string>
+    <string name="detail_preview_hint">Tap or drag across strips on the backplate to select zones.</string>
     <string name="zone_preview_description">Nothing Phone (2) backplate and 33 Glyph zones</string>
     <string name="detail_checking">Checking Root and Glyph sysfs…</string>
     <string name="detail_ready">Root and 33 Glyph zones ready</string>
@@ -95,6 +96,8 @@
     <string name="detail_scene_save_failed">Could not save scene</string>
     <string name="detail_scene_missing">Empty: Slot %1$d</string>
 
+    <string name="runtime_hardware_title">Glyph hardware</string>
+
     <string name="home_effects_section">Automatic effects</string>
     <string name="home_effects_footer">When an automatic effect finishes, your last applied manual scene is restored.</string>
     <string name="sw_notify">Notification flash</string>
@@ -140,11 +143,21 @@
     <string name="keepalive_remove_success">Watchdog script removed</string>
     <string name="keepalive_remove_failed">Could not remove watchdog script</string>
 
-    <string name="appearance_section">Nothing appearance</string>
-    <string name="theme_mode_label">Color mode</string>
+    <string name="appearance_section">Theme &amp; color</string>
+    <string name="theme_mode_label">Dark mode</string>
     <string name="theme_mode_system">System</string>
     <string name="theme_mode_light">Light</string>
     <string name="theme_mode_dark">Dark</string>
+    <string name="monet_dynamic_label">Monet dynamic color</string>
+    <string name="monet_dynamic_hint">Generates a Material Design 3 palette from your system wallpaper</string>
+    <string name="palette_style_label">Palette style</string>
+    <string name="palette_style_tonal">Tonal</string>
+    <string name="palette_style_expressive">Expressive</string>
+    <string name="palette_style_vibrant">Vibrant</string>
+    <string name="palette_style_monochrome">Monochrome</string>
+    <string name="theme_seed_title">Theme color</string>
+    <string name="theme_seed_monet_active">Wallpaper color</string>
+    <string name="theme_seed_footer">Tap a swatch or the rainbow wheel to choose any custom Material Design 3 theme color.</string>
     <string name="serif_titles_label">Serif display titles</string>
     <string name="serif_titles_hint">Uses system serif typography for navigation titles and section headlines</string>
 

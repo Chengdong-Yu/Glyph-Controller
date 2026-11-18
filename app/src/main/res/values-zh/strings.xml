@@ -7,8 +7,9 @@
 
     <string name="home_device_model">Nothing Phone (2)</string>
     <string name="home_device_ready">硬件就绪</string>
-    <string name="home_device_checking">正在检测硬件</string>
-    <string name="home_device_unavailable">硬件不可用</string>
+    <string name="home_device_checking">检测中</string>
+    <string name="home_device_unavailable">不可用</string>
+    <string name="home_active_zones">点亮灯区</string>
     <string name="home_mean_output">平均亮度</string>
     <string name="home_presets_section">快捷预设</string>
     <string name="home_scenes_section">自定义存档</string>
@@ -38,7 +39,7 @@
     <string name="detail_title">工坊</string>
     <string name="detail_apply_short">应用</string>
     <string name="detail_revert_short">撤回</string>
-    <string name="detail_preview_hint">点按或直接在 Phone (2) 背部灯带上滑动即可连续选区。</string>
+    <string name="detail_preview_hint">点按或直接在 Phone (2) 背板上滑动即可连续选区。</string>
     <string name="zone_preview_description">Nothing Phone (2) 背板与 33 个 Glyph 灯光区域</string>
     <string name="detail_checking">正在检查 Root 与 Glyph 硬件…</string>
     <string name="detail_ready">Root 正常，33 个灯区全部可用</string>
@@ -95,6 +96,8 @@
     <string name="detail_scene_save_failed">场景保存失败</string>
     <string name="detail_scene_missing">暂无存档：槽位 %1$d</string>
 
+    <string name="runtime_hardware_title">Glyph 硬件</string>
+
     <string name="home_effects_section">自动灯效</string>
     <string name="home_effects_footer">通知、充电和音量灯效播放结束后，会自动恢复当前常亮场景。</string>
     <string name="sw_notify">通知闪烁</string>
@@ -140,11 +143,21 @@
     <string name="keepalive_remove_success">保活脚本已移除</string>
     <string name="keepalive_remove_failed">保活脚本移除失败</string>
 
-    <string name="appearance_section">Nothing 外观</string>
+    <string name="appearance_section">主题与配色</string>
     <string name="theme_mode_label">深浅色模式</string>
     <string name="theme_mode_system">跟随系统</string>
     <string name="theme_mode_light">浅色</string>
     <string name="theme_mode_dark">深色</string>
+    <string name="monet_dynamic_label">莫奈动态取色</string>
+    <string name="monet_dynamic_hint">跟随系统壁纸自动生成 Material Design 3 配色</string>
+    <string name="palette_style_label">配色风格</string>
+    <string name="palette_style_tonal">柔和色调</string>
+    <string name="palette_style_expressive">灵动表现</string>
+    <string name="palette_style_vibrant">鲜明活力</string>
+    <string name="palette_style_monochrome">极简单色</string>
+    <string name="theme_seed_title">主题色</string>
+    <string name="theme_seed_monet_active">跟随壁纸</string>
+    <string name="theme_seed_footer">点选色块或末尾彩虹轮可任意设定自定义 Material Design 3 主题色。</string>
     <string name="serif_titles_label">衬线体标题</string>
     <string name="serif_titles_hint">导航栏标题与展示大字使用系统衬线字体</string>
 

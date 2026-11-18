@@ -4,39 +4,50 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
+import java.util.Locale
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.launch
 import ui.feice.mochi.basic.MochiBarIconButton
 import ui.feice.mochi.basic.MochiButton
 import ui.feice.mochi.basic.MochiButtonGroup
 import ui.feice.mochi.basic.MochiButtonStyle
-import ui.feice.mochi.basic.MochiChip
-import ui.feice.mochi.basic.MochiChipGroup
 import ui.feice.mochi.basic.MochiDialog
 import ui.feice.mochi.basic.MochiDialogAction
 import ui.feice.mochi.basic.MochiDialogActionRole
 import ui.feice.mochi.basic.MochiLinearGauge
+import ui.feice.mochi.basic.MochiSelectFrame
+import ui.feice.mochi.basic.MochiSelectionCheck
 import ui.feice.mochi.basic.MochiSwitch
 import ui.feice.mochi.basic.MochiTabItem
 import ui.feice.mochi.basic.MochiToastHost
@@ -45,6 +56,8 @@ import ui.feice.mochi.basic.rememberMochiToastState
 import ui.feice.mochi.effect.content.MochiBlurText
 import ui.feice.mochi.effect.content.crossfadeOrChange
 import ui.feice.mochi.effect.content.revealIfShadeChanges
+import ui.feice.mochi.effect.mask.mochiScrollFadeMask
+import ui.feice.mochi.effect.overscroll.MochiScrollDefaults
 import ui.feice.mochi.icons.MochiIconStyle
 import ui.feice.mochi.icons.MochiIonicon
 import ui.feice.mochi.icons.MochiIonicons
@@ -63,6 +76,8 @@ import ui.feice.mochi.navigation.MochiTabScaffold
 import ui.feice.mochi.navigation.mochiNavSource
 import ui.feice.mochi.navigation.rememberMochiNavigator
 import ui.feice.mochi.navigation.rememberMochiTabScaffoldState
+import ui.feice.mochi.picker.MochiSeedPalette
+import ui.feice.mochi.shape.MochiRoundedRectangle
 import ui.feice.mochi.theme.MochiDefaults
 import ui.feice.mochi.theme.MochiTheme
 import ui.feice.mochi.utils.mochiEnableEdgeToEdge
@@ -83,6 +98,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             GlyphAppTheme(
                 colorMode = controller.colorMode,
+                useMonet = controller.useMonet,
+                styleVariant = controller.styleVariant,
+                seedColor = controller.seedColor,
                 serifTitles = controller.serifTitles,
             ) {
                 MainWorkbenchRoot(controller = controller)
@@ -189,7 +207,6 @@ private fun MainWorkbenchRoot(controller: GlyphWorkbenchController) {
                     0 -> OverviewPage(
                         controller = controller,
                         onOpenStudio = { tabState.select(1) },
-                        onOpenSettings = { tabState.select(2) },
                         onOpenScenesFromCard = { nav.push(ROUTE_SCENES, from = GlyphNavIds.ScenesCardSource) },
                     )
 
@@ -221,12 +238,13 @@ private fun MainWorkbenchRoot(controller: GlyphWorkbenchController) {
 private fun OverviewPage(
     controller: GlyphWorkbenchController,
     onOpenStudio: () -> Unit,
-    onOpenSettings: () -> Unit,
     onOpenScenesFromCard: () -> Unit,
 ) {
     val applied = controller.appliedSnapshot
     val telemetry = remember(applied) { GlyphZones.telemetry(applied) }
     val savedCount = controller.savedSlots.count { it != null }
+    val cs = MochiTheme.colorScheme
+    val podShape = remember { MochiRoundedRectangle(20.dp) }
 
     MochiLazyCompactTitleScaffold(
         title = stringResource(R.string.app_name),
@@ -257,55 +275,81 @@ private fun OverviewPage(
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        GlyphVectorPreview(
-                            snapshot = applied,
-                            modifier = Modifier.size(width = 100.dp, height = 182.dp),
-                            onTapZone = { zone ->
-                                controller.selectZone(zone)
-                                onOpenStudio()
-                            },
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            MochiIonicon(
+                                name = "radio-button-on",
+                                tint = cs.primary,
+                                size = 18.dp,
+                            )
+                            Text(
+                                text = stringResource(R.string.home_device_model),
+                                style = MochiTheme.textStyles.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = cs.onSurface,
+                                maxLines = 1,
+                            )
+                        }
+                        val (badgeLabel, badgeTone) = when {
+                            controller.checking -> stringResource(R.string.home_device_checking) to GlyphStatusTone.Neutral
+                            controller.hardwareReady -> stringResource(R.string.home_device_ready) to GlyphStatusTone.Active
+                            else -> stringResource(R.string.home_device_unavailable) to GlyphStatusTone.Warning
+                        }
+                        GlyphStatusBadge(text = badgeLabel, tone = badgeTone)
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(width = 112.dp, height = 192.dp)
+                                .clip(podShape)
+                                .background(Color(0xFF101216), podShape)
+                                .border(1.dp, cs.outlineVariant.copy(alpha = 0.5f), podShape)
+                                .padding(10.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            GlyphVectorPreview(
+                                snapshot = applied,
+                                modifier = Modifier.fillMaxSize(),
+                                onTapZone = { zone ->
+                                    controller.selectZone(zone)
+                                    onOpenStudio()
+                                },
+                            )
+                        }
+
                         Spacer(Modifier.width(16.dp))
+
                         Column(
                             modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                            ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text(
-                                    text = stringResource(R.string.home_device_model),
-                                    style = MochiTheme.textStyles.subhead.copy(fontWeight = FontWeight.SemiBold),
-                                    color = MochiTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f, fill = false),
+                                    text = stringResource(R.string.home_active_zones),
+                                    style = MochiTheme.textStyles.footnote,
+                                    color = cs.onSurfaceVariant,
                                 )
-                                val (badgeLabel, badgeTone) = when {
-                                    controller.checking -> stringResource(R.string.home_device_checking) to GlyphStatusTone.Neutral
-                                    controller.hardwareReady -> stringResource(R.string.home_device_ready) to GlyphStatusTone.Active
-                                    else -> stringResource(R.string.home_device_unavailable) to GlyphStatusTone.Warning
-                                }
-                                GlyphStatusBadge(text = badgeLabel, tone = badgeTone)
+                                GlyphDotCounter(
+                                    value = telemetry.activeZones.toLong(),
+                                    style = MochiTheme.textStyles.headlineMedium,
+                                    color = cs.onSurface,
+                                    format = { "$it / 33" },
+                                )
+                                MochiBlurText(
+                                    text = controller.statusText,
+                                    style = MochiTheme.textStyles.subhead,
+                                    color = cs.onSurfaceVariant,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
                             }
-
-                            GlyphDotCounter(
-                                value = telemetry.activeZones.toLong(),
-                                style = MochiTheme.textStyles.displaySmall,
-                                color = MochiTheme.colorScheme.onSurface,
-                                format = { "$it / 33" },
-                            )
-
-                            MochiBlurText(
-                                text = controller.statusText,
-                                style = MochiTheme.textStyles.subhead,
-                                color = MochiTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
 
                             MochiLinearGauge(
                                 value = telemetry.meanPercent.toFloat(),
@@ -373,19 +417,55 @@ private fun OverviewPage(
         }
 
         item(key = "overview_presets") {
-            Column(verticalArrangement = Arrangement.spacedBy(MochiListDefaults.HeaderGap)) {
-                MochiListSectionHeader(text = stringResource(R.string.home_presets_section))
-                MochiChipGroup(
-                    contentPadding = PaddingValues(0.dp),
-                    bleed = 16.dp,
+            MochiListSection(
+                header = stringResource(R.string.home_presets_section),
+            ) {
+                val presetScroll = rememberScrollState()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .mochiListDivider(MochiListDefaults.RowPadding)
+                        .mochiScrollFadeMask(presetScroll, vertical = false)
+                        .horizontalScroll(presetScroll, flingBehavior = MochiScrollDefaults.flingBehavior())
+                        .padding(horizontal = MochiListDefaults.RowPadding, vertical = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     GlyphCuratedPresets.forEach { preset ->
-                        MochiChip(
-                            label = stringResource(preset.labelRes),
-                            selected = applied == preset.snapshot,
-                            onClick = { controller.applyQuickPreset(preset.snapshot) },
-                            leadingIcon = { MochiIonicon(preset.iconName, size = 16.dp) },
-                        )
+                        val selected = applied == preset.snapshot
+                        Column(
+                            modifier = Modifier.width(80.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            MochiSelectFrame(
+                                selected = selected,
+                                onClick = { controller.applyQuickPreset(preset.snapshot) },
+                                modifier = Modifier
+                                    .width(80.dp)
+                                    .height(128.dp),
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color(0xFF101216))
+                                        .padding(6.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    GlyphVectorPreview(
+                                        snapshot = preset.snapshot,
+                                        modifier = Modifier.fillMaxSize(),
+                                    )
+                                }
+                            }
+                            Text(
+                                text = stringResource(preset.labelRes),
+                                style = MochiTheme.textStyles.footnote,
+                                color = cs.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            MochiSelectionCheck(selected = selected)
+                        }
                     }
                 }
             }
@@ -410,51 +490,48 @@ private fun OverviewPage(
                         chevron = true,
                         onClick = onOpenScenesFromCard,
                     )
-                }
-            }
-        }
 
-        item(key = "overview_runtime") {
-            MochiListSection(
-                header = stringResource(R.string.home_runtime_section),
-            ) {
-                val (notifyLabel, notifyTone) = resolveNotificationStatus(controller)
-                MochiListRow(
-                    title = stringResource(R.string.sw_notify),
-                    leading = { GlyphSymbolLeading("notifications") },
-                    leadingStyle = MochiListLeadingStyle.Symbol,
-                    status = { GlyphStatusBadge(text = notifyLabel, tone = notifyTone) },
-                    chevron = true,
-                    onClick = {
-                        if (controller.listenerStatus == GlyphListenerState.Status.NEEDS_ACCESS) {
-                            controller.openNotificationAccessSettings()
-                        } else {
-                            onOpenSettings()
+                    val slotShape = remember { MochiRoundedRectangle(14.dp) }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(role = Role.Button, onClick = onOpenScenesFromCard)
+                            .padding(horizontal = MochiListDefaults.RowPadding, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        for (slot in 0 until GlyphSceneStore.SLOT_COUNT) {
+                            val slotSnap = controller.savedSlots.getOrNull(slot)
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(slotShape)
+                                    .background(cs.surfaceContainerHigh, slotShape)
+                                    .padding(vertical = 10.dp, horizontal = 6.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(width = 38.dp, height = 66.dp)
+                                        .clip(MochiRoundedRectangle(10.dp))
+                                        .background(Color(0xFF101216))
+                                        .padding(4.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    GlyphVectorPreview(
+                                        snapshot = slotSnap ?: GlyphSnapshot.Zero,
+                                        modifier = Modifier.fillMaxSize(),
+                                    )
+                                }
+                                GlyphDotCode(
+                                    code = "S0${slot + 1}",
+                                    style = MochiTheme.textStyles.labelSmall,
+                                    color = if (slotSnap != null) cs.primary else cs.onSurfaceVariant,
+                                )
+                            }
                         }
-                    },
-                )
-
-                MochiListRow(
-                    title = stringResource(R.string.sw_volume),
-                    leading = { GlyphSymbolLeading("volume-high") },
-                    leadingStyle = MochiListLeadingStyle.Symbol,
-                    trailing = {
-                        MochiSwitch(
-                            checked = controller.volumeEnabled,
-                            onCheckedChange = controller::setVolumeRing,
-                        )
-                    },
-                )
-
-                val (watchdogLabel, watchdogTone) = resolveWatchdogStatus(controller)
-                MochiListRow(
-                    title = stringResource(R.string.keepalive_title),
-                    leading = { GlyphSymbolLeading("shield-checkmark") },
-                    leadingStyle = MochiListLeadingStyle.Symbol,
-                    status = { GlyphStatusBadge(text = watchdogLabel, tone = watchdogTone) },
-                    chevron = true,
-                    onClick = onOpenSettings,
-                )
+                    }
+                }
             }
         }
     }
@@ -464,16 +541,179 @@ private fun OverviewPage(
 private fun SettingsPage(controller: GlyphWorkbenchController) {
     val revealState = LocalGlyphThemeReveal.current
     val systemDark = isSystemInDarkTheme()
+    val cs = MochiTheme.colorScheme
+
     val colorOptions = persistentListOf(
         stringResource(R.string.theme_mode_system),
         stringResource(R.string.theme_mode_light),
         stringResource(R.string.theme_mode_dark),
+    )
+    val styleOptions = persistentListOf(
+        stringResource(R.string.palette_style_tonal),
+        stringResource(R.string.palette_style_expressive),
+        stringResource(R.string.palette_style_vibrant),
+        stringResource(R.string.palette_style_monochrome),
     )
 
     MochiLazyCompactTitleScaffold(
         title = stringResource(R.string.tab_settings),
         onRefresh = controller::refreshHardware,
     ) {
+        item(key = "settings_runtime_status") {
+            MochiListSection(
+                header = stringResource(R.string.home_runtime_section),
+            ) {
+                val (hwBadge, hwTone) = when {
+                    controller.checking -> stringResource(R.string.home_device_checking) to GlyphStatusTone.Neutral
+                    controller.hardwareReady -> stringResource(R.string.home_device_ready) to GlyphStatusTone.Active
+                    else -> stringResource(R.string.home_device_unavailable) to GlyphStatusTone.Warning
+                }
+                MochiListRow(
+                    title = stringResource(R.string.runtime_hardware_title),
+                    subtitle = controller.studioHardwareText,
+                    leading = { GlyphSymbolLeading("hardware-chip") },
+                    leadingStyle = MochiListLeadingStyle.Symbol,
+                    loading = controller.checking,
+                    status = { GlyphStatusBadge(text = hwBadge, tone = hwTone) },
+                    onClick = controller::checkHardware,
+                )
+
+                val (notifyLabel, notifyTone) = resolveNotificationStatus(controller)
+                MochiListRow(
+                    title = stringResource(R.string.home_access_title),
+                    leading = { GlyphSymbolLeading("notifications") },
+                    leadingStyle = MochiListLeadingStyle.Symbol,
+                    status = { GlyphStatusBadge(text = notifyLabel, tone = notifyTone) },
+                    chevron = true,
+                    onClick = controller::openNotificationAccessSettings,
+                )
+
+                val (watchdogLabel, watchdogTone) = resolveWatchdogStatus(controller)
+                MochiListRow(
+                    title = stringResource(R.string.keepalive_title),
+                    leading = { GlyphSymbolLeading("shield-checkmark") },
+                    leadingStyle = MochiListLeadingStyle.Symbol,
+                    loading = controller.keepAliveBusy,
+                    status = { GlyphStatusBadge(text = watchdogLabel, tone = watchdogTone) },
+                )
+            }
+        }
+
+        item(key = "settings_appearance") {
+            MochiListSection(
+                header = stringResource(R.string.appearance_section),
+                footer = stringResource(R.string.theme_seed_footer),
+            ) {
+                MochiListPickerRow(
+                    title = stringResource(R.string.theme_mode_label),
+                    options = colorOptions,
+                    selectedIndex = controller.colorMode.ordinal,
+                    leading = { GlyphSymbolLeading("contrast") },
+                    leadingStyle = MochiListLeadingStyle.Symbol,
+                    onSelect = { index ->
+                        val nextMode = GlyphColorMode.entries[index]
+                        val fromDark = controller.colorMode.resolveDark(systemDark)
+                        val toDark = nextMode.resolveDark(systemDark)
+                        revealState.revealIfShadeChanges(fromDark = fromDark, toDark = toDark) {
+                            controller.updateColorMode(nextMode)
+                        }
+                    },
+                )
+
+                MochiListRow(
+                    title = stringResource(R.string.monet_dynamic_label),
+                    subtitle = stringResource(R.string.monet_dynamic_hint),
+                    leading = { GlyphSymbolLeading("color-palette") },
+                    leadingStyle = MochiListLeadingStyle.Symbol,
+                    trailing = {
+                        MochiSwitch(
+                            checked = controller.useMonet,
+                            onCheckedChange = controller::updateUseMonet,
+                        )
+                    },
+                )
+
+                MochiListPickerRow(
+                    title = stringResource(R.string.palette_style_label),
+                    options = styleOptions,
+                    selectedIndex = controller.styleVariant.ordinal,
+                    leading = { GlyphSymbolLeading("layers") },
+                    leadingStyle = MochiListLeadingStyle.Symbol,
+                    onSelect = { index ->
+                        val nextVariant = GlyphStyleVariant.entries[index]
+                        val togglingMono = (controller.styleVariant == GlyphStyleVariant.MONOCHROME) !=
+                            (nextVariant == GlyphStyleVariant.MONOCHROME)
+                        if (togglingMono) {
+                            revealState.crossfadeOrChange { controller.updateStyleVariant(nextVariant) }
+                        } else {
+                            controller.updateStyleVariant(nextVariant)
+                        }
+                    },
+                )
+
+                MochiListRow(
+                    title = stringResource(R.string.serif_titles_label),
+                    subtitle = stringResource(R.string.serif_titles_hint),
+                    leading = { GlyphSymbolLeading("text") },
+                    leadingStyle = MochiListLeadingStyle.Symbol,
+                    trailing = {
+                        MochiSwitch(
+                            checked = controller.serifTitles,
+                            onCheckedChange = { enabled ->
+                                revealState.crossfadeOrChange {
+                                    controller.updateSerifTitles(enabled)
+                                }
+                            },
+                        )
+                    },
+                )
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .mochiListDivider(MochiListDefaults.RowPadding)
+                        .padding(horizontal = MochiListDefaults.RowPadding, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.theme_seed_title),
+                            style = MochiTheme.textStyles.body,
+                            color = cs.onSurface,
+                        )
+                        if (controller.useMonet) {
+                            GlyphStatusBadge(
+                                text = stringResource(R.string.theme_seed_monet_active),
+                                tone = GlyphStatusTone.Active,
+                            )
+                        } else {
+                            val hex = remember(controller.seedColor) {
+                                String.format(Locale.US, "#%06X", controller.seedColor.toArgb() and 0xFFFFFF)
+                            }
+                            GlyphDotCode(
+                                code = hex,
+                                style = MochiTheme.textStyles.labelMedium,
+                                color = cs.primary,
+                            )
+                        }
+                    }
+
+                    MochiSeedPalette(
+                        selected = if (controller.useMonet) null else controller.seedColor,
+                        onSelect = controller::updateSeedColor,
+                        seeds = GlyphSeedSwatches,
+                        style = controller.styleVariant.toMochiPaletteStyle(),
+                        custom = true,
+                        swatchSize = 46.dp,
+                    )
+                }
+            }
+        }
+
         item(key = "settings_effects") {
             MochiListSection(
                 header = stringResource(R.string.home_effects_section),
@@ -503,14 +743,6 @@ private fun SettingsPage(controller: GlyphWorkbenchController) {
                             enabled = controller.notifyEnabled,
                         )
                     },
-                )
-
-                val (notifyLabel, notifyTone) = resolveNotificationStatus(controller)
-                MochiListRow(
-                    title = stringResource(R.string.home_access_title),
-                    status = { GlyphStatusBadge(text = notifyLabel, tone = notifyTone) },
-                    chevron = true,
-                    onClick = controller::openNotificationAccessSettings,
                 )
 
                 MochiListRow(
@@ -562,14 +794,6 @@ private fun SettingsPage(controller: GlyphWorkbenchController) {
                 header = stringResource(R.string.keepalive_section),
                 footer = stringResource(R.string.keepalive_hint),
             ) {
-                val (watchdogLabel, watchdogTone) = resolveWatchdogStatus(controller)
-                MochiListRow(
-                    title = stringResource(R.string.keepalive_title),
-                    leading = { GlyphSymbolLeading("hardware-chip") },
-                    leadingStyle = MochiListLeadingStyle.Symbol,
-                    loading = controller.keepAliveBusy,
-                    status = { GlyphStatusBadge(text = watchdogLabel, tone = watchdogTone) },
-                )
                 MochiListButton(
                     text = stringResource(R.string.keepalive_install),
                     onClick = controller::installOrRestartKeepAlive,
@@ -578,45 +802,6 @@ private fun SettingsPage(controller: GlyphWorkbenchController) {
                     text = stringResource(R.string.keepalive_remove),
                     destructive = true,
                     onClick = { controller.showRemoveKeepAliveDialog = true },
-                )
-            }
-        }
-
-        item(key = "settings_appearance") {
-            MochiListSection(
-                header = stringResource(R.string.appearance_section),
-            ) {
-                MochiListPickerRow(
-                    title = stringResource(R.string.theme_mode_label),
-                    options = colorOptions,
-                    selectedIndex = controller.colorMode.ordinal,
-                    leading = { GlyphSymbolLeading("contrast") },
-                    leadingStyle = MochiListLeadingStyle.Symbol,
-                    onSelect = { index ->
-                        val nextMode = GlyphColorMode.entries[index]
-                        val fromDark = controller.colorMode.resolveDark(systemDark)
-                        val toDark = nextMode.resolveDark(systemDark)
-                        revealState.revealIfShadeChanges(fromDark = fromDark, toDark = toDark) {
-                            controller.updateColorMode(nextMode)
-                        }
-                    },
-                )
-
-                MochiListRow(
-                    title = stringResource(R.string.serif_titles_label),
-                    subtitle = stringResource(R.string.serif_titles_hint),
-                    leading = { GlyphSymbolLeading("text") },
-                    leadingStyle = MochiListLeadingStyle.Symbol,
-                    trailing = {
-                        MochiSwitch(
-                            checked = controller.serifTitles,
-                            onCheckedChange = { enabled ->
-                                revealState.crossfadeOrChange {
-                                    controller.updateSerifTitles(enabled)
-                                }
-                            },
-                        )
-                    },
                 )
             }
         }

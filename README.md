@@ -2,17 +2,17 @@
 
 一款面向 **Nothing Phone (2)** 的 Android Glyph 灯带控制与编排应用。应用通过持久化 `su` root shell 直接读写设备的 Glyph LED `sysfs` 节点，无需依赖 Nothing 官方系统框架或 SDK。
 
-应用界面全面基于 **[mochi-compose](https://github.com/feice11/mochi-compose) (`0.2.0`)** 与官方 **Nothing 外观模块 (`mochi-nothing`)** 构建，采用纯粹的暖调单色层级、标志性 `#D71921` Nothing 红点缀、系统衬线标题 + Inter 正文排版，以及针对独立数值与硬件编码的点阵字体（`Ndot57`）显示。
+应用界面全面基于 **[mochi-compose](https://github.com/feice11/mochi-compose) (`0.2.0`)** 与 **Nothing 排印及组件体系 (`mochi-nothing`)** 构建，支持 **Material Design 3 莫奈动态壁纸取色（Monet）**、自定义种子色板与全色域取色器（`MochiSeedPalette` + `MochiColorPickerSheet`）、多种配色风格（柔和色调 / 灵动表现 / 鲜明活力 / 极简单色），以及针对独立数值与硬件编码的点阵字体（`Ndot57`）显示。
 
 > 当前版本针对 Nothing Phone (2) 的 33 区灯带硬件节点实现。Nothing Phone (1) 的区域数量与驱动映射不同，尚未适配。
 
 ## 核心特性
 
-- **纯正 Nothing 外观与 Mochi 导航交互架构：**
-  - **总览 (`Overview`)：** 搭载可点触交互的 33 区矢量背板预览、点阵滚轮计数器（`MochiCounterText` + `nothingDotTextStyle`）、平均亮度线性仪表（`MochiLinearGauge`）、一键全亮/全灭总控、7 款快捷预设筛选条（`MochiChipGroup`），以及支持容器变形转场（`mochiNavSource`）的自定义场景卡片与运行状态列表。
-  - **工坊 (`Studio`)：** 真实 Phone (2) 背板舞台，支持**点按与连续拖动选区**、柔和白光扩散与 Nothing 红选区描边、**单灯段 / 整组联动**双模式（`MochiSegmentedControl`）、6 组解剖分区筛选、带阻尼刻度吸附的 `MochiListSliderRow`、批量帧编辑按钮组（`MochiButtonGroup`：同步本组 / 铺满全区 / 亮度反相 / 亮度减半），以及 `MochiSelectFrame` 可视化预设画廊。
+- **动态莫奈取色与 Mochi 导航交互架构：**
+  - **总览 (`Overview`)：** 搭载主题光晕联动的 33 区矢量背板舞台、点阵滚轮计数器（`MochiCounterText` + `nothingDotTextStyle`）、平均亮度线性仪表（`MochiLinearGauge`）、一键全亮/全灭总控、可视化快捷预设画廊（`MochiSelectFrame`），以及内置 4 槽位缩略预览并支持容器变形转场（`mochiNavSource`）的自定义存档卡片。
+  - **工坊 (`Studio`)：** 真实 Phone (2) 背板舞台，支持**点按与连续拖动选区**、主题色光晕与选区描边、**单灯段 / 整组联动**双模式（`MochiSegmentedControl`）、6 组解剖分区筛选、带阻尼刻度吸附的 `MochiListSliderRow`、批量帧编辑按钮组（`MochiButtonGroup`：同步本组 / 铺满全区 / 亮度反相 / 亮度减半），以及 `MochiSelectFrame` 可视化预设画廊。
   - **场景槽位页 (`Scene Vault`)：** 4 槽位自定义场景管理（槽位 1 自动兼容旧版存档），支持从总览卡片展开变形或从工坊顶栏推入、共享顶栏按钮变形，以及左滑露出清空操作（`MochiSwipeRow`）。
-  - **设置 (`Settings`)：** 集中管理通知三段闪烁（含免打扰自动静默与通知使用权引导）、充电流光、0ms 延迟 16 段 C1 音量指示环、硬件灯效一键试播、`service.d` 保活看门狗（移除操作经 `MochiDialog` 二次确认），以及 Nothing 深浅色揭开转场（`MochiThemeRevealHost`）与衬线标题切换。
+  - **设置 (`Settings`)：** 集中呈现**运行状态**（Glyph 硬件、通知使用权、`service.d` 看门狗）、**主题与配色**（深浅色揭开转场 `MochiThemeRevealHost`、Material Design 3 莫奈动态取色开关、4 种配色风格、9 款精选色块 + 全色域自定义取色器、衬线标题开关）、自动灯效（通知三段闪烁、充电流光、0ms 延迟 16 段 C1 音量指示环）、硬件灯效一键试播，以及保活看门狗管理。
 - **底层性能与状态架构优化：**
   - **Compose 结构化快照 (`@Immutable GlyphSnapshot`)：** 消除 `IntArray` 引用相等导致的冗余重组。
   - **响应式状态控制器 (`@Stable GlyphWorkbenchController`)：** 合并 `MainActivity` 与 `GlyphDetailActivity` 重复逻辑，使用 `StateFlow` 与系统免打扰广播替代原有的 1 秒轮询协程。

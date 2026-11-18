@@ -21,6 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -47,7 +48,6 @@ import ui.feice.mochi.icons.MochiIonicon
 import ui.feice.mochi.list.MochiListButton
 import ui.feice.mochi.list.MochiListDefaults
 import ui.feice.mochi.list.MochiListSection
-import ui.feice.mochi.list.MochiListSectionHeader
 import ui.feice.mochi.list.MochiListSliderRow
 import ui.feice.mochi.list.mochiListDivider
 import ui.feice.mochi.navigation.MochiLazyCompactTitleScaffold
@@ -229,20 +229,23 @@ fun GlyphStudioPage(
         }
 
         item(key = "studio_curated_presets") {
-            Column(verticalArrangement = Arrangement.spacedBy(MochiListDefaults.HeaderGap)) {
-                MochiListSectionHeader(text = stringResource(R.string.detail_presets))
+            MochiListSection(
+                header = stringResource(R.string.detail_presets),
+            ) {
                 val presetScroll = rememberScrollState()
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .mochiListDivider(MochiListDefaults.RowPadding)
                         .mochiScrollFadeMask(presetScroll, vertical = false)
-                        .horizontalScroll(presetScroll, flingBehavior = MochiScrollDefaults.flingBehavior()),
+                        .horizontalScroll(presetScroll, flingBehavior = MochiScrollDefaults.flingBehavior())
+                        .padding(horizontal = MochiListDefaults.RowPadding, vertical = 14.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     GlyphCuratedPresets.forEach { preset ->
                         val isSelected = controller.studioSnapshot == preset.snapshot
                         Column(
-                            modifier = Modifier.width(86.dp),
+                            modifier = Modifier.width(82.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
@@ -250,13 +253,13 @@ fun GlyphStudioPage(
                                 selected = isSelected,
                                 onClick = { controller.stagePresetInDraft(preset.snapshot) },
                                 modifier = Modifier
-                                    .width(86.dp)
-                                    .height(142.dp),
+                                    .width(82.dp)
+                                    .height(132.dp),
                             ) {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .background(MochiTheme.colorScheme.surfaceContainer)
+                                        .background(Color(0xFF101216))
                                         .padding(6.dp),
                                     contentAlignment = Alignment.Center,
                                 ) {
@@ -364,9 +367,9 @@ private fun ZoneStripSelectorRow(
             val selected = zone == selectedZone
             val level = snapshot[zone]
             val ratio = (level / 255f).coerceIn(0f, 1f)
-            val borderColor = if (selected) cs.primary else cs.outlineVariant
+            val borderColor = if (selected) cs.primary else cs.outlineVariant.copy(alpha = 0.6f)
             val containerColor = if (selected) {
-                cs.primary.copy(alpha = if (cs.isDark) 0.18f else 0.10f)
+                cs.secondaryContainer
             } else {
                 cs.surfaceContainerHigh
             }
