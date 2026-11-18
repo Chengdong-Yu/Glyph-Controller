@@ -15,6 +15,7 @@ class RootGlyphClient {
     private var outputLines: LinkedBlockingQueue<String>? = null
     private var ready = false
     private var commandCounter = 0L
+    private val lastAsyncFrame = IntArray(ZONE_COUNT) { -1 }
 
     private class CommandResult(val success: Boolean, val output: String = "")
 
@@ -98,7 +99,9 @@ class RootGlyphClient {
                     }
                     return result
                 }
-                if (output.length < MAX_OUTPUT_CHARS) output.append(line.take(MAX_OUTPUT_CHARS - output.length)).append('\n')
+                if (output.length < MAX_OUTPUT_CHARS) {
+                    output.append(line.take(MAX_OUTPUT_CHARS - output.length)).append('\n')
+                }
             }
 
             Log.e(TAG, "Root command timed out or shell exited: $command")
@@ -136,6 +139,7 @@ class RootGlyphClient {
         outputLines = null
         ready = false
         active = false
+        lastAsyncFrame.fill(-1)
     }
 
     fun isRootAvailable(): Boolean = ensureRoot()
@@ -144,13 +148,17 @@ class RootGlyphClient {
     private fun activate(): Boolean {
         val success = execute("echo 1 > $OPERATING_MODE").success
         active = success
+        if (!success) lastAsyncFrame.fill(-1)
         return success
     }
 
     @Synchronized
     private fun standby(): Boolean {
         val success = execute("echo 2 > $OPERATING_MODE").success
-        if (success) active = false
+        if (success) {
+            active = false
+            lastAsyncFrame.fill(-1)
+        }
         return success
     }
 
@@ -161,20 +169,41 @@ class RootGlyphClient {
         if (!ensureRoot()) return false
         if (!active && !activate()) return false
 
-        val sb = StringBuilder(132)
+        // Skip redundant async sysfs pipe flushes when the frame is unchanged during 50 FPS loops.
+        if (!sync && isSameAsLastAsync(values)) {
+            return true
+        }
+
+        val sb = StringBuilder(192)
+        sb.append("echo '")
         for (i in 0 until ZONE_COUNT) {
             if (i > 0) sb.append(' ')
-            sb.append(values[i].coerceIn(0, 255))
+            val clamped = values[i].coerceIn(0, 255)
+            sb.append(clamped)
+            lastAsyncFrame[i] = clamped
         }
-        val frame = sb.toString()
+        sb.append("' > ").append(FRAME_BRIGHTNESS)
 
         return if (sync) {
-            val success = execute("echo '$frame' > $FRAME_BRIGHTNESS").success
-            if (!success) active = false
+            val success = execute(sb.toString()).success
+            if (!success) {
+                active = false
+                lastAsyncFrame.fill(-1)
+            }
             success
         } else {
-            writeAsync("echo '$frame' > $FRAME_BRIGHTNESS\n")
+            sb.append('\n')
+            val written = writeAsync(sb.toString())
+            if (!written) lastAsyncFrame.fill(-1)
+            written
         }
+    }
+
+    private fun isSameAsLastAsync(values: IntArray): Boolean {
+        for (i in 0 until ZONE_COUNT) {
+            if (values[i].coerceIn(0, 255) != lastAsyncFrame[i]) return false
+        }
+        return true
     }
 
     @Synchronized

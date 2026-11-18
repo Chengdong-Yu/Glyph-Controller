@@ -3,8 +3,10 @@ package com.richard.glyphcontroller
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -15,6 +17,32 @@ class CoreLogicTest {
         assertArrayEquals(valid, GlyphFrame.decode(valid.joinToString(",")))
         assertNull(GlyphFrame.decode("1,2,3"))
         assertNull(GlyphFrame.decode(IntArray(GlyphFrame.ZONE_COUNT) { 256 }.joinToString(",")))
+    }
+
+    @Test
+    fun glyphSnapshotProvidesStructuralEqualityAndDefensiveImmutability() {
+        val raw = IntArray(GlyphFrame.ZONE_COUNT) { if (it % 2 == 0) 140 else 0 }
+        val first = GlyphSnapshot.from(raw)
+        val second = GlyphSnapshot.from(raw.copyOf())
+
+        assertEquals(first, second)
+        assertEquals(first.hashCode(), second.hashCode())
+        assertTrue(first.anyLit)
+        assertFalse(first.allMax)
+        assertFalse(first.allOff)
+        assertEquals(17, first.activeCount)
+
+        // Mutating the original or exported array must never mutate the snapshot.
+        raw[0] = 255
+        assertEquals(140, first[0])
+        assertNotEquals(first, GlyphSnapshot.from(raw))
+
+        val exported = first.toIntArray()
+        exported[0] = 0
+        assertEquals(140, first[0])
+
+        assertSame(GlyphSnapshot.Zero, GlyphSnapshot.from(IntArray(GlyphFrame.ZONE_COUNT)))
+        assertSame(GlyphSnapshot.Full, GlyphSnapshot.from(IntArray(GlyphFrame.ZONE_COUNT) { 255 }))
     }
 
     @Test
@@ -64,5 +92,39 @@ class CoreLogicTest {
         assertFalse(session.manual(requested, previous) { false })
         assertArrayEquals(requested, writes.first())
         assertArrayEquals(previous, writes.last())
+    }
+
+    @Test
+    fun curatedPresetsAndSculptTransformsRemainValidFrames() {
+        val starlight = GlyphZones.presetStarlight()
+        val essential = GlyphZones.presetEssential()
+        assertTrue(GlyphFrame.valid(starlight))
+        assertTrue(GlyphFrame.valid(essential))
+
+        val syncedArc = GlyphZones.fillRange(IntArray(GlyphFrame.ZONE_COUNT), GlyphZones.clusterRange(8), 200)
+        assertTrue((3..18).all { syncedArc[it] == 200 })
+        assertEquals(0, syncedArc[0])
+        assertEquals(0, syncedArc[24])
+
+        val inverted = GlyphZones.invert(syncedArc)
+        assertEquals(55, inverted[8])
+        assertEquals(255, inverted[0])
+
+        val dimmed = GlyphZones.scale(syncedArc, 0.5f)
+        assertEquals(100, dimmed[8])
+    }
+
+    @Test
+    fun telemetryComputesActiveCountMeanAndPeakAccurately() {
+        val fullTelemetry = GlyphZones.telemetry(GlyphSnapshot.Full)
+        assertEquals(33, fullTelemetry.activeZones)
+        assertEquals(100, fullTelemetry.meanPercent)
+        assertEquals(255, fullTelemetry.peakLevel)
+        assertEquals(1f, fullTelemetry.ringRatio, 0.001f)
+
+        val offTelemetry = GlyphZones.telemetry(GlyphSnapshot.Zero)
+        assertEquals(0, offTelemetry.activeZones)
+        assertEquals(0, offTelemetry.meanPercent)
+        assertEquals(0, offTelemetry.peakLevel)
     }
 }

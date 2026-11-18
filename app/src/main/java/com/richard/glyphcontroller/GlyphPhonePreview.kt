@@ -1,77 +1,269 @@
 package com.richard.glyphcontroller
 
+import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.BlurMaskFilter
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PathMeasure
+import android.graphics.RectF
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.withSave
-import top.yukonga.miuix.kmp.theme.MiuixTheme
-import kotlin.math.hypot
+import java.lang.ref.WeakReference
 import kotlin.math.roundToInt
+import ui.feice.mochi.shape.MochiRoundedRectangle
+import ui.feice.mochi.theme.MochiTheme
+import ui.feice.mochi.utils.rememberMochiHaptics
 
-/** Compose preview of the actual Phone (2) back, with the original 33-zone hit map. */
+private const val CROP_TOP = 330f
+private const val CROP_HEIGHT = 1185f
+
+/**
+ * Interactive Nothing Phone (2) backplate stage with balanced aspect-preserving framing,
+ * theme-tinted photonic LED bloom, tap picking, and continuous drag-to-scrub selection.
+ */
 @Composable
-fun GlyphPhonePreview(frame: IntArray, selected: Int, onSelect: (Int) -> Unit) {
-    val resources = LocalResources.current
-    val bitmap = remember(resources) { BitmapFactory.decodeResource(resources, R.drawable.phone2_glyph_map) }
-    val geometry = remember { GlyphPhoneGeometry() }
-    val accent = MiuixTheme.colorScheme.primary.toArgb()
+fun GlyphPhonePreview(
+    snapshot: GlyphSnapshot,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    highlightedZones: IntRange? = null,
+) {
+    val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val bitmap = remember(context, configuration) { GlyphBackplateBitmapCache.obtain(context) }
+    val paints = remember { GlyphCanvasPaints() }
+    val cs = MochiTheme.colorScheme
+    val accentArgb = cs.primary.toArgb()
+    val litGlowArgb = lerp(Color.White, cs.primary, 0.34f).toArgb()
+    val borderColor = cs.outlineVariant.copy(alpha = if (cs.isDark) 0.45f else 0.7f)
+    val haptics = rememberMochiHaptics()
+    val currentSelected by rememberUpdatedState(selected)
+    val currentOnSelect by rememberUpdatedState(onSelect)
     val description = stringResource(R.string.zone_preview_description)
-    Canvas(Modifier.fillMaxWidth().aspectRatio(bitmap.width / 1185f).clip(RoundedCornerShape(22.dp))
-        .semantics { contentDescription = description }
-        .pointerInput(geometry, onSelect) {
-            detectTapGestures { tap ->
-                val scale = size.width / bitmap.width.toFloat()
-                geometry.findZone(tap.x / scale, tap.y / scale + 330f)?.let(onSelect)
+    val stageShape = remember { MochiRoundedRectangle(20.dp) }
+    val bmpWidth = bitmap.width.toFloat()
+
+    Canvas(
+        modifier
+            .fillMaxWidth()
+            .height(280.dp)
+            .clip(stageShape)
+            .border(1.dp, borderColor, stageShape)
+            .semantics { contentDescription = description }
+            .pointerInput(bmpWidth) {
+                detectTapGestures { tap ->
+                    val (scale, ox, oy) = stageTransform(size.width.toFloat(), size.height.toFloat(), bmpWidth)
+                    val gx = (tap.x - ox) / scale
+                    val gy = (tap.y - oy) / scale + CROP_TOP
+                    GlyphPhonePaths.findZone(gx, gy, maxDistance = 42f)?.let { hit ->
+                        if (hit != currentSelected) {
+                            haptics.tick()
+                        }
+                        currentOnSelect(hit)
+                    }
+                }
             }
-        }) {
-        drawRoundRect(Color(0xFF16191E))
+            .pointerInput(bmpWidth) {
+                var lastScrubbed = -1
+                detectDragGestures(
+                    onDragStart = { pos ->
+                        val (scale, ox, oy) = stageTransform(size.width.toFloat(), size.height.toFloat(), bmpWidth)
+                        val gx = (pos.x - ox) / scale
+                        val gy = (pos.y - oy) / scale + CROP_TOP
+                        GlyphPhonePaths.findZone(gx, gy, maxDistance = 48f)?.let { hit ->
+                            lastScrubbed = hit
+                            if (hit != currentSelected) {
+                                haptics.tick()
+                                currentOnSelect(hit)
+                            }
+                        }
+                    },
+                    onDragEnd = { lastScrubbed = -1 },
+                    onDragCancel = { lastScrubbed = -1 },
+                    onDrag = { change, _ ->
+                        val (scale, ox, oy) = stageTransform(size.width.toFloat(), size.height.toFloat(), bmpWidth)
+                        val hit = GlyphPhonePaths.findZone(
+                            x = (change.position.x - ox) / scale,
+                            y = (change.position.y - oy) / scale + CROP_TOP,
+                            maxDistance = 48f,
+                        )
+                        if (hit != null && hit != lastScrubbed) {
+                            lastScrubbed = hit
+                            change.consume()
+                            haptics.tick()
+                            currentOnSelect(hit)
+                        }
+                    },
+                )
+            },
+    ) {
+        drawRect(Color(0xFF0E1014))
+        val (imageScale, ox, oy) = stageTransform(size.width, size.height, bmpWidth)
         drawIntoCanvas { canvas ->
             val native = canvas.nativeCanvas
             native.withSave {
-                val imageScale = size.width / bitmap.width.toFloat()
+                translate(ox, oy)
                 scale(imageScale, imageScale)
-                translate(0f, -330f)
-                clipRect(0f, 330f, bitmap.width.toFloat(), 1515f)
-                drawBitmap(bitmap, 0f, 0f, geometry.imagePaint)
-                geometry.draw(this, frame, selected, accent)
+                translate(0f, -CROP_TOP)
+                clipRect(0f, CROP_TOP, bmpWidth, CROP_TOP + CROP_HEIGHT)
+                drawBitmap(bitmap, 0f, 0f, paints.imagePaint)
+                paints.drawZones(
+                    canvas = this,
+                    snapshot = snapshot,
+                    selected = selected,
+                    highlightedRange = highlightedZones,
+                    accentArgb = accentArgb,
+                    litGlowArgb = litGlowArgb,
+                    trackArgb = android.graphics.Color.rgb(40, 42, 48),
+                )
             }
         }
     }
 }
 
-private class GlyphPhoneGeometry {
-    val imagePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val paths = Array(GlyphFrame.ZONE_COUNT) { Path() }
-    private val samples = Array(GlyphFrame.ZONE_COUNT) { FloatArray(0) }
+private fun stageTransform(canvasW: Float, canvasH: Float, bmpW: Float): Triple<Float, Float, Float> {
+    val scale = minOf(canvasW / bmpW, canvasH / CROP_HEIGHT)
+    val ox = (canvasW - bmpW * scale) * 0.5f
+    val oy = (canvasH - CROP_HEIGHT * scale) * 0.5f
+    return Triple(scale, ox, oy)
+}
+
+/**
+ * Resolution-independent 33-zone vector topology renderer with theme-adaptive hardware silhouette
+ * and subtle theme-tinted photonic glow around lit LED strips.
+ */
+@Composable
+fun GlyphVectorPreview(
+    snapshot: GlyphSnapshot,
+    modifier: Modifier = Modifier,
+    selected: Int = -1,
+    showChassis: Boolean = true,
+    onTapZone: ((Int) -> Unit)? = null,
+) {
+    val cs = MochiTheme.colorScheme
+    val paints = remember { GlyphCanvasPaints() }
+    val accentArgb = cs.primary.toArgb()
+    val litGlowArgb = lerp(Color.White, cs.primary, 0.38f).toArgb()
+    val chassisFill = lerp(Color(0xFF15171D), cs.primary, if (cs.isDark) 0.06f else 0.08f).toArgb()
+    val chassisStroke = lerp(Color(0x36FFFFFF), cs.primary, 0.22f).toArgb()
+    val trackArgb = android.graphics.Color.rgb(46, 49, 58)
+    val haptics = rememberMochiHaptics()
+    val currentOnTap by rememberUpdatedState(onTapZone)
+
+    val viewportLeft = 250f
+    val viewportTop = 335f
+    val viewportW = 510f
+    val viewportH = 1010f
+
+    Canvas(
+        modifier = modifier.then(
+            if (onTapZone != null) {
+                Modifier.pointerInput(Unit) {
+                    detectTapGestures { tap ->
+                        val scale = minOf(size.width / viewportW, size.height / viewportH)
+                        val ox = (size.width - viewportW * scale) * 0.5f
+                        val oy = (size.height - viewportH * scale) * 0.5f
+                        val gx = (tap.x - ox) / scale + viewportLeft
+                        val gy = (tap.y - oy) / scale + viewportTop
+                        val hit = GlyphPhonePaths.findZone(gx, gy, maxDistance = 58f)
+                        haptics.tick()
+                        currentOnTap?.invoke(hit ?: 0)
+                    }
+                }
+            } else {
+                Modifier
+            },
+        ),
+    ) {
+        drawIntoCanvas { canvas ->
+            val native = canvas.nativeCanvas
+            native.withSave {
+                val scale = minOf(size.width / viewportW, size.height / viewportH)
+                val ox = (size.width - viewportW * scale) * 0.5f
+                val oy = (size.height - viewportH * scale) * 0.5f
+                translate(ox, oy)
+                scale(scale, scale)
+                translate(-viewportLeft, -viewportTop)
+                if (showChassis) {
+                    paints.drawChassis(this, chassisFill, chassisStroke)
+                }
+                paints.drawZones(
+                    canvas = this,
+                    snapshot = snapshot,
+                    selected = selected,
+                    highlightedRange = null,
+                    accentArgb = accentArgb,
+                    litGlowArgb = litGlowArgb,
+                    trackArgb = trackArgb,
+                )
+            }
+        }
+    }
+}
+
+/** Decodes `phone2_glyph_map` once per density and shares it via a GC-friendly [WeakReference]. */
+private object GlyphBackplateBitmapCache {
+    private var cachedDpi: Int = -1
+    private var cachedRef: WeakReference<Bitmap>? = null
+
+    @Synchronized
+    fun obtain(context: Context): Bitmap {
+        val resources = context.resources
+        val dpi = resources.displayMetrics.densityDpi
+        val existing = cachedRef?.get()
+        if (existing != null && !existing.isRecycled && cachedDpi == dpi) {
+            return existing
+        }
+        return BitmapFactory.decodeResource(resources, R.drawable.phone2_glyph_map).also { decoded ->
+            cachedDpi = dpi
+            cachedRef = WeakReference(decoded)
+        }
+    }
+}
+
+/**
+ * Process-wide immutable geometry for all 33 Nothing Phone (2) LED zones and pre-sampled
+ * hit-testing points.
+ */
+internal object GlyphPhonePaths {
+    val chassisRect = RectF(262f, 348f, 748f, 1332f)
+    val cameraPillRect = RectF(295f, 368f, 428f, 596f)
+    val paths: Array<Path> = Array(GlyphFrame.ZONE_COUNT) { Path() }
+    private val samples: Array<FloatArray>
 
     init {
         buildPaths()
-        paths.forEachIndexed { index, path ->
-            val measure = PathMeasure(path, false)
+        samples = Array(GlyphFrame.ZONE_COUNT) { index ->
+            val measure = PathMeasure(paths[index], false)
             val count = (measure.length / 5f).roundToInt().coerceAtLeast(1)
             val point = FloatArray(2)
-            samples[index] = FloatArray((count + 1) * 2).also { points ->
+            FloatArray((count + 1) * 2).also { points ->
                 for (step in 0..count) {
                     measure.getPosTan(measure.length * step / count, point, null)
                     points[step * 2] = point[0]
@@ -81,54 +273,36 @@ private class GlyphPhoneGeometry {
         }
     }
 
-    fun findZone(x: Float, y: Float): Int? {
+    fun findZone(x: Float, y: Float, maxDistance: Float = 32f): Int? {
         var nearest = -1
-        var distance = 30f
-        samples.forEachIndexed { index, points ->
-            for (step in points.indices step 2) {
-                val candidate = hypot(x - points[step], y - points[step + 1])
-                if (candidate < distance) {
+        var bestSq = maxDistance * maxDistance
+        for (index in samples.indices) {
+            val points = samples[index]
+            var step = 0
+            while (step < points.size) {
+                val dx = x - points[step]
+                val dy = y - points[step + 1]
+                val distSq = dx * dx + dy * dy
+                if (distSq < bestSq) {
                     nearest = index
-                    distance = candidate
+                    bestSq = distSq
                 }
+                step += 2
             }
         }
         return nearest.takeIf { it >= 0 }
     }
 
-    fun draw(canvas: android.graphics.Canvas, frame: IntArray, selected: Int, accent: Int) {
-        paint.style = Paint.Style.STROKE
-        paint.strokeCap = Paint.Cap.ROUND
-        paint.strokeJoin = Paint.Join.ROUND
-        paths.forEachIndexed { index, path ->
-            val width = if (index in 3..18 || index in 25..32) 12f else 15f
-            if (index == selected) {
-                paint.color = accent
-                paint.alpha = 230
-                paint.strokeWidth = width + 11f
-                canvas.drawPath(path, paint)
-            }
-            paint.color = android.graphics.Color.rgb(43, 48, 55)
-            paint.alpha = 245
-            paint.strokeWidth = width + 2f
-            canvas.drawPath(path, paint)
-            paint.color = android.graphics.Color.WHITE
-            val level = frame[index]
-            paint.alpha = if (level == 0) 25 else 45 + level * 210 / 255
-            paint.strokeWidth = width
-            canvas.drawPath(path, paint)
-        }
-        paint.alpha = 255
-    }
-
     private fun buildPaths() {
         paths[0].apply {
-            moveTo(311f, 494f); lineTo(311f, 443f)
+            moveTo(311f, 494f)
+            lineTo(311f, 443f)
             cubicTo(311f, 404f, 329f, 383f, 360f, 383f)
             cubicTo(394f, 383f, 416f, 405f, 420f, 434f)
         }
         paths[1].apply {
-            moveTo(412f, 488f); lineTo(412f, 532f)
+            moveTo(412f, 488f)
+            lineTo(412f, 532f)
             cubicTo(411f, 562f, 390f, 582f, 360f, 582f)
             cubicTo(346f, 582f, 336f, 578f, 329f, 571f)
         }
@@ -139,8 +313,8 @@ private class GlyphPhoneGeometry {
         }
         val arcMeasure = PathMeasure(topArc, false)
         for (part in 0 until 16) {
-            val start = arcMeasure.length * (part + .09f) / 16f
-            val end = arcMeasure.length * (part + .91f) / 16f
+            val start = arcMeasure.length * (part + 0.09f) / 16f
+            val end = arcMeasure.length * (part + 0.91f) / 16f
             arcMeasure.getSegment(start, end, paths[3 + part], true)
         }
         paths[19].apply {
@@ -157,7 +331,7 @@ private class GlyphPhoneGeometry {
             cubicTo(648f, 1053f, 680f, 1023f, 703f, 1000f)
         }
         line(23, 706f, 854f, 706f, 934f)
-        paths[24].addCircle(507f, 1293f, 2f, Path.Direction.CW)
+        paths[24].addCircle(507f, 1293f, 3.5f, Path.Direction.CW)
         for (part in 0 until 8) {
             val bottom = 1258f - part * 13.2f
             line(25 + part, 507f, bottom, 507f, bottom - 11.7f)
@@ -167,5 +341,82 @@ private class GlyphPhoneGeometry {
     private fun line(index: Int, x1: Float, y1: Float, x2: Float, y2: Float) {
         paths[index].moveTo(x1, y1)
         paths[index].lineTo(x2, y2)
+    }
+}
+
+private class GlyphCanvasPaints {
+    val imagePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
+    private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+        maskFilter = BlurMaskFilter(24f, BlurMaskFilter.Blur.NORMAL)
+    }
+    private val chassisPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    fun drawChassis(canvas: android.graphics.Canvas, fillArgb: Int, strokeArgb: Int) {
+        chassisPaint.style = Paint.Style.FILL
+        chassisPaint.color = fillArgb
+        canvas.drawRoundRect(GlyphPhonePaths.chassisRect, 82f, 82f, chassisPaint)
+
+        chassisPaint.style = Paint.Style.STROKE
+        chassisPaint.strokeWidth = 3.5f
+        chassisPaint.color = strokeArgb
+        canvas.drawRoundRect(GlyphPhonePaths.chassisRect, 82f, 82f, chassisPaint)
+
+        chassisPaint.strokeWidth = 2.2f
+        chassisPaint.alpha = (android.graphics.Color.alpha(strokeArgb) * 0.55f).toInt()
+        canvas.drawRoundRect(GlyphPhonePaths.cameraPillRect, 66f, 66f, chassisPaint)
+        canvas.drawCircle(505f, 845f, 152f, chassisPaint)
+        chassisPaint.alpha = 255
+    }
+
+    fun drawZones(
+        canvas: android.graphics.Canvas,
+        snapshot: GlyphSnapshot,
+        selected: Int,
+        highlightedRange: IntRange?,
+        accentArgb: Int,
+        litGlowArgb: Int,
+        trackArgb: Int,
+    ) {
+        val paths = GlyphPhonePaths.paths
+        for (index in paths.indices) {
+            val path = paths[index]
+            val width = if (index in 3..18 || index in 25..32) 13f else 16f
+            val level = snapshot[index].coerceIn(0, 255)
+            val isPrimarySelected = index == selected
+            val isGroupSelected = !isPrimarySelected && highlightedRange?.contains(index) == true
+
+            if (level > 12 || isPrimarySelected) {
+                glowPaint.color = if (isPrimarySelected) accentArgb else litGlowArgb
+                glowPaint.alpha = if (isPrimarySelected) 220 else (38 + level * 162 / 255).coerceIn(0, 210)
+                glowPaint.strokeWidth = width + if (isPrimarySelected) 22f else 16f
+                canvas.drawPath(path, glowPaint)
+            }
+
+            if (isPrimarySelected || isGroupSelected) {
+                strokePaint.color = accentArgb
+                strokePaint.alpha = if (isPrimarySelected) 245 else 150
+                strokePaint.strokeWidth = width + if (isPrimarySelected) 11f else 7.5f
+                canvas.drawPath(path, strokePaint)
+            }
+
+            strokePaint.color = trackArgb
+            strokePaint.alpha = 240
+            strokePaint.strokeWidth = width + 2.5f
+            canvas.drawPath(path, strokePaint)
+
+            strokePaint.color = android.graphics.Color.WHITE
+            strokePaint.alpha = if (level == 0) 34 else (64 + level * 191 / 255).coerceIn(0, 255)
+            strokePaint.strokeWidth = width
+            canvas.drawPath(path, strokePaint)
+        }
+        strokePaint.alpha = 255
     }
 }
