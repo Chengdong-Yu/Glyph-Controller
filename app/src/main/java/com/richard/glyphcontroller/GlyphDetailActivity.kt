@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import ui.feice.mochi.basic.MochiToastHost
 import ui.feice.mochi.basic.rememberMochiToastState
@@ -27,7 +28,7 @@ class GlyphDetailActivity : ComponentActivity() {
         mochiEnableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
-        lifecycleScope.launch {
+        lifecycleScope.launch(Dispatchers.Default) {
             MochiIonicons.preload(applicationContext)
         }
 
@@ -66,6 +67,7 @@ class GlyphDetailActivity : ComponentActivity() {
                 MochiNavHost(
                     navigator = nav,
                     modifier = Modifier.fillMaxSize(),
+                    windowGlass = false,
                 ) { route ->
                     when (route) {
                         ROUTE_STUDIO -> GlyphStudioPage(

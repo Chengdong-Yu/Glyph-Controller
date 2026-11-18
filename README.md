@@ -13,10 +13,11 @@
   - **工坊 (`Studio`)：** 真实 Phone (2) 背板舞台，支持**点按与连续拖动选区**、主题色光晕与选区描边、**单灯段 / 整组联动**双模式（`MochiSegmentedControl`）、6 组解剖分区筛选、带阻尼刻度吸附的 `MochiListSliderRow`、批量帧编辑按钮组（`MochiButtonGroup`）、**可视化快捷预设画廊**（`MochiSelectFrame`），以及内置 4 槽位缩略预览并支持容器变形转场（`mochiNavSource`）的**自定义存档卡片**。
   - **场景槽位页 (`Scene Vault`)：** 4 槽位自定义场景管理（槽位 1 自动兼容旧版存档），支持从工坊存档卡片展开变形或从顶栏推入、共享顶栏按钮变形，以及左滑露出清空操作（`MochiSwipeRow`）。
   - **设置 (`Settings`)：** 集中呈现**运行状态**（Glyph 硬件、通知使用权、`service.d` 看门狗）、**主题与配色**（深浅色揭开转场 `MochiThemeRevealHost`、Material Design 3 莫奈动态取色开关、4 种配色风格、9 款精选色块 + 全色域自定义取色器、衬线标题开关）、硬件灯效一键试播，以及保活看门狗管理。
-- **底层性能与状态架构优化：**
-  - **Compose 结构化快照 (`@Immutable GlyphSnapshot`)：** 消除 `IntArray` 引用相等导致的冗余重组。
-  - **响应式状态控制器 (`@Stable GlyphWorkbenchController`)：** 合并 `MainActivity` 与 `GlyphDetailActivity` 重复逻辑，使用 `StateFlow` 与系统免打扰广播替代原有的 1 秒轮询协程。
-  - **零额外分配硬件灯效 (`GlyphEffects`) 与 `sysfs` 写入去重 (`RootGlyphClient`)：** 单缓冲区复用通知与充电序列，`StringBuilder` 单遍格式化 `frame_brightness` 命令并跳过重复异步帧刷新；33 区背板 `Path` 与采样点升级为进程级单例缓存。
+- **底层性能与 120Hz 渲染架构优化：**
+  - **纯 GPU 灯带光晕与双层背板舞台 (`GlyphPhonePreview`)：** 彻底移除 CPU 光栅化的 `BlurMaskFilter`，采用纯 GPU 硬件多层半透明描边合成柔光光晕；背板底图一次性预裁剪并缩放为 `RGB_565` 缓存于独立硬件 `RenderNode` 层，33 区灯带叠加层仅在 Compose `Draw` 阶段惰性读取状态，实现 120Hz 滑块拖动 **0 重组、0 布局、0 底图重绘**；预设与存档缩略图通过 `graphicsLayer()` 缓存显示列表，滚动零重绘。
+  - **零离屏录制导航与原生 120Hz 锁定 (`GlyphTabScaffold` / `GlyphAppTheme`)：** 关闭纯色主题下冗余的全屏 `LayerBackdrop` 离屏玻璃录制（`MochiNavHost(windowGlass = false)` + 定制纯色 `GlyphTabScaffold`），仅挂载当前活跃标签页并保留滚动位置；在不放大模糊半径的前提下自动匹配屏幕当前分辨率最高刷新率（120Hz LTPO）。
+  - **叶子级状态隔离与结构化快照 (`@Immutable GlyphSnapshot` / `GlyphStudioScreen`)：** `GlyphSnapshot` 提供单遍扫描 `withLevel` / `withRange` 无变化零分配快路径；工坊页各胶囊与预设卡片通过独立 `derivedStateOf` 按项订阅，消除整页重组与模糊滚轮风暴；滚动项统一采用免裁切背景或硬件 `Outline.Rounded` 裁切。
+  - **低延迟 Root `sysfs` 管道与协程合并 (`GlyphEffectCoordinator` / `RootGlyphClient`)：** 缓存硬件验证状态省去每次写灯前的二次 `su` 探测（IPC 延迟减半），合并 `onResume` 恢复检查窗口；单缓冲区复用通知与充电序列，`StringBuilder` 单遍格式化 `frame_brightness` 命令并跳过重复异步帧刷新。
 - **快捷设置与状态恢复：** 提供系统快捷设置图块（QS Tile），进程重启或自动灯效播放结束后自动恢复当前常亮手动场景。
 
 ## 设备与权限要求
@@ -68,10 +69,10 @@ $env:ANDROID_HOME = 'C:\path\to\Android\Sdk'
 ## 模块架构概览
 
 - **UI 与状态控制层（Mochi + Nothing）：**
-  - `GlyphAppTheme`：唯一根级 `MochiTheme` 入口，接入 `nothingColorScheme`、`nothingControlPalette`、`nothingTextStyles`、纯色 `MochiMaterials()`、`MochiThemeRevealHost` 与 `ProvideMochiOverscroll`。
+  - `GlyphAppTheme`：唯一根级 `MochiTheme` 入口，接入 MD3 莫奈动态取色与自定义种子色板（`ThemeController`）、`nothingColorScheme`、`nothingControlPalette`、`nothingTextStyles`、纯色 `MochiMaterials()`、`GlyphHighRefreshRateEffect`、`MochiThemeRevealHost` 与 `ProvideMochiOverscroll`。
   - `GlyphWorkbenchController`：跨 Activity 共享的 `@Stable` 状态与硬件交互控制器。
-  - `MainActivity` / `GlyphStudioScreen` / `GlyphUiComponents` / `GlyphDetailActivity`：基于 `MochiNavHost`、`MochiTabScaffold` 与 `MochiLazyCompactTitleScaffold` 的总览、工坊、场景槽位与设置页面。
-  - `GlyphPhonePreview`：进程级缓存的 33 区 Phone (2) 背板渲染与连续滑动选区画布，以及纯矢量预览器 `GlyphVectorPreview`。
+  - `MainActivity` / `GlyphStudioScreen` / `GlyphUiComponents` / `GlyphDetailActivity`：基于 `MochiNavHost(windowGlass = false)`、零离屏录制的 `GlyphTabScaffold` 与 `MochiLazyCompactTitleScaffold` 的总览、工坊、场景槽位与设置页面。
+  - `GlyphPhonePreview`：`RGB_565` 预裁剪双层背板渲染与连续滑动选区舞台，以及带 `RenderNode` 列表缓存的纯矢量预览器 `GlyphVectorPreview`。
 - **硬件与后台服务层：**
   - `GlyphFrame` & `GlyphZones`：`@Immutable GlyphSnapshot` 帧模型、33 区解剖分组、光学统计与 4 槽位场景持久化（`GlyphSceneStore`）。
   - `RootGlyphClient`：持久化 `su` shell 同步/异步写入 33 值 `frame_brightness`，含重复帧过滤与预分配命令缓冲。

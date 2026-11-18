@@ -6,9 +6,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -57,7 +59,7 @@ class GlyphWorkbenchController(
     var previewingEffect by mutableStateOf(false)
         private set
 
-    val busy: Boolean get() = checking || toggling || applying
+    val busy: Boolean by derivedStateOf { checking || toggling || applying }
 
     var appliedSnapshot by mutableStateOf(GlyphPowerState.getSnapshot(activity))
         private set
@@ -107,7 +109,8 @@ class GlyphWorkbenchController(
     var showRemoveKeepAliveDialog by mutableStateOf(false)
     var showNotifyAccessGuideDialog by mutableStateOf(false)
 
-    val isDraftDirty: Boolean get() = studioSnapshot != appliedSnapshot
+    val isDraftDirty: Boolean by derivedStateOf { studioSnapshot != appliedSnapshot }
+    private var lastHardwareVerifyMs: Long = 0L
 
     /** Optional UI callback connected to `MochiToastState.show` while the host screen is composed. */
     var onFeedback: ((title: String, iconName: String?) -> Unit)? = null
@@ -154,17 +157,29 @@ class GlyphWorkbenchController(
         pauseNotificationDuringDnd = settingsPrefs.getBoolean(GlyphDoNotDisturb.PAUSE_NOTIFICATION_SETTING, true)
         chargerEnabled = settingsPrefs.getBoolean("charger_enabled", true)
         volumeEnabled = settingsPrefs.getBoolean("volume_enabled", true)
-        savedSlots = GlyphSceneStore.loadAllSnapshots(activity)
         listenerStatus = GlyphListenerState.status(activity)
         doNotDisturb = GlyphDoNotDisturb.isActive(activity)
 
         registerForegroundObservers()
 
         RootCommand.beginRootAttemptWindow()
-        checkHardware()
-        GlyphRuntime.ensure(appContext)
-        GlyphVolumeCoordinator.start(appContext)
-        refreshKeepAliveStatus()
+        val now = SystemClock.elapsedRealtime()
+        val recentlyVerified = hardwareReady && (now - lastHardwareVerifyMs) < RESUME_REVERIFY_WINDOW_MS
+        activity.lifecycleScope.launch {
+            val loadedSlots = withContext(Dispatchers.Default) {
+                GlyphSceneStore.loadAllSnapshots(appContext)
+            }
+            if (activity.isDestroyed || activity.isFinishing) return@launch
+            savedSlots = loadedSlots
+
+            if (recentlyVerified && !busy) {
+                syncAppliedSnapshot(GlyphPowerState.getSnapshot(activity), syncCleanDraft = true)
+                GlyphRuntime.ensureServicesAfterReady(appContext)
+            } else {
+                refreshHardware(preserveReadyUi = hardwareReady)
+            }
+            refreshKeepAliveStatus()
+        }
     }
 
     fun onPause() {
@@ -258,29 +273,37 @@ class GlyphWorkbenchController(
     fun checkHardware() {
         if (busy) return
         activity.lifecycleScope.launch {
-            refreshHardware()
+            refreshHardware(preserveReadyUi = false)
         }
     }
 
     suspend fun refreshHardware() {
+        refreshHardware(preserveReadyUi = false)
+    }
+
+    private suspend fun refreshHardware(preserveReadyUi: Boolean) {
         if (busy) return
         checking = true
-        hardwareReady = false
-        statusText = activity.getString(R.string.detail_checking)
-        studioHardwareText = activity.getString(R.string.detail_checking)
+        if (!preserveReadyUi) {
+            hardwareReady = false
+            statusText = activity.getString(R.string.detail_checking)
+            studioHardwareText = activity.getString(R.string.detail_checking)
+        }
 
         val result = withContext(Dispatchers.Default) {
             GlyphEffectCoordinator.checkAndRestore(appContext).also { readiness ->
-                if (readiness.ready) GlyphRuntime.ensure(appContext)
+                if (readiness.ready) GlyphRuntime.ensureServicesAfterReady(appContext)
             }
         }
         if (activity.isDestroyed || activity.isFinishing) return
         checking = false
         hardwareReady = result.ready
         if (result.ready) {
+            lastHardwareVerifyMs = SystemClock.elapsedRealtime()
             studioHardwareText = activity.getString(R.string.detail_ready)
             syncAppliedSnapshot(GlyphPowerState.getSnapshot(activity), syncCleanDraft = true)
         } else {
+            lastHardwareVerifyMs = 0L
             statusText = activity.getString(
                 when (result.hardware) {
                     GlyphHardware.Status.NO_ROOT -> R.string.status_no_root
@@ -371,17 +394,26 @@ class GlyphWorkbenchController(
 
     fun setSelectedBrightness(level: Int) {
         val clamped = level.coerceIn(0, 255)
-        if (groupEditMode) {
-            val next = GlyphZones.fillRange(
-                source = studioDraft.frame,
-                range = GlyphZones.clusterRange(selectedZone),
-                level = clamped,
-            )
-            studioDraft.replace(next)
+        val wasDirty = isDraftDirty
+        val nextSnapshot = if (groupEditMode) {
+            val range = GlyphZones.clusterRange(selectedZone)
+            val updated = studioSnapshot.withRange(range, clamped)
+            if (updated === studioSnapshot) return
+            studioDraft.replace(GlyphZones.fillRange(studioDraft.frame, range, clamped))
+            updated
         } else {
+            val updated = studioSnapshot.withLevel(selectedZone, clamped)
+            if (updated === studioSnapshot) return
             studioDraft.setLevel(selectedZone, clamped)
+            updated
         }
-        refreshDraftSnapshot()
+        studioSnapshot = nextSnapshot
+        val nowDirty = nextSnapshot != appliedSnapshot
+        if (nowDirty != wasDirty) {
+            studioActionText = activity.getString(
+                if (nowDirty) R.string.detail_unsaved else R.string.detail_current,
+            )
+        }
     }
 
     fun syncSelectedCluster() {
@@ -644,6 +676,7 @@ class GlyphWorkbenchController(
     }
 
     companion object {
+        private const val RESUME_REVERIFY_WINDOW_MS = 20_000L
         private const val KEY_NOTIFY_ACCESS_GUIDED = "notify_access_guided"
         private const val KEY_UNSUPPORTED_SHOWN = "unsupported_shown"
         private const val KEY_DRAFT_FRAME = "studio_draft_frame"

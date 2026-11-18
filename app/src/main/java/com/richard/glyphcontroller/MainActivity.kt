@@ -17,12 +17,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.res.stringResource
@@ -32,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
 import java.util.Locale
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import ui.feice.mochi.basic.MochiBarIconButton
 import ui.feice.mochi.basic.MochiButton
@@ -62,9 +69,7 @@ import ui.feice.mochi.list.MochiListSection
 import ui.feice.mochi.list.mochiListDivider
 import ui.feice.mochi.navigation.MochiLazyCompactTitleScaffold
 import ui.feice.mochi.navigation.MochiNavHost
-import ui.feice.mochi.navigation.MochiTabScaffold
 import ui.feice.mochi.navigation.rememberMochiNavigator
-import ui.feice.mochi.navigation.rememberMochiTabScaffoldState
 import ui.feice.mochi.picker.MochiSeedPalette
 import ui.feice.mochi.shape.MochiRoundedRectangle
 import ui.feice.mochi.theme.MochiTheme
@@ -77,7 +82,7 @@ class MainActivity : ComponentActivity() {
         mochiEnableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
-        lifecycleScope.launch {
+        lifecycleScope.launch(Dispatchers.Default) {
             MochiIonicons.preload(applicationContext)
         }
 
@@ -123,7 +128,11 @@ private const val ROUTE_SCENES = "scenes"
 @Composable
 private fun MainWorkbenchRoot(controller: GlyphWorkbenchController) {
     val nav = rememberMochiNavigator(ROUTE_ROOT)
-    val tabState = rememberMochiTabScaffoldState()
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    val overviewListState = rememberLazyListState()
+    val studioListState = rememberLazyListState()
+    val settingsListState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
     val toastState = rememberMochiToastState()
 
     DisposableEffect(controller, toastState) {
@@ -140,8 +149,8 @@ private fun MainWorkbenchRoot(controller: GlyphWorkbenchController) {
         }
     }
 
-    BackHandler(enabled = !nav.canPop && tabState.selectedIndex != 0) {
-        tabState.select(0)
+    BackHandler(enabled = !nav.canPop && selectedTab != 0) {
+        selectedTab = 0
     }
 
     val overviewLabel = stringResource(R.string.tab_overview)
@@ -174,7 +183,7 @@ private fun MainWorkbenchRoot(controller: GlyphWorkbenchController) {
     val routeTitle: (String) -> String = { route ->
         when (route) {
             ROUTE_SCENES -> vaultLabel
-            else -> when (tabState.selectedIndex) {
+            else -> when (selectedTab) {
                 1 -> studioLabel
                 2 -> settingsLabel
                 else -> overviewLabel
@@ -185,25 +194,40 @@ private fun MainWorkbenchRoot(controller: GlyphWorkbenchController) {
     MochiNavHost(
         navigator = nav,
         modifier = Modifier.fillMaxSize(),
+        windowGlass = false,
     ) { route ->
         when (route) {
-            ROUTE_ROOT -> MochiTabScaffold(
+            ROUTE_ROOT -> GlyphTabScaffold(
                 items = tabItems,
-                state = tabState,
+                selectedIndex = selectedTab,
+                onSelect = { selectedTab = it },
+                onReselect = { index ->
+                    val targetState = when (index) {
+                        1 -> studioListState
+                        2 -> settingsListState
+                        else -> overviewListState
+                    }
+                    scope.launch { targetState.animateScrollToItem(0) }
+                },
             ) { page ->
                 when (page) {
                     0 -> OverviewPage(
                         controller = controller,
-                        onOpenStudio = { tabState.select(1) },
+                        listState = overviewListState,
+                        onOpenStudio = { selectedTab = 1 },
                     )
 
                     1 -> GlyphStudioPage(
                         controller = controller,
+                        listState = studioListState,
                         onOpenScenesFromBar = { nav.push(ROUTE_SCENES) },
                         onOpenScenesFromCard = { nav.push(ROUTE_SCENES, from = GlyphNavIds.ScenesCardSource) },
                     )
 
-                    else -> SettingsPage(controller = controller)
+                    else -> SettingsPage(
+                        controller = controller,
+                        listState = settingsListState,
+                    )
                 }
             }
 
@@ -212,7 +236,7 @@ private fun MainWorkbenchRoot(controller: GlyphWorkbenchController) {
                 routeTitle = routeTitle,
                 onLoadedIntoStudio = {
                     nav.pop()
-                    tabState.select(1)
+                    selectedTab = 1
                 },
             )
         }
@@ -225,6 +249,7 @@ private fun MainWorkbenchRoot(controller: GlyphWorkbenchController) {
 @Composable
 private fun OverviewPage(
     controller: GlyphWorkbenchController,
+    listState: LazyListState,
     onOpenStudio: () -> Unit,
 ) {
     val applied = controller.appliedSnapshot
@@ -234,6 +259,7 @@ private fun OverviewPage(
 
     MochiLazyCompactTitleScaffold(
         title = stringResource(R.string.app_name),
+        listState = listState,
         actions = {
             MochiBarIconButton(
                 onClick = controller::checkHardware,
@@ -294,7 +320,6 @@ private fun OverviewPage(
                         Box(
                             modifier = Modifier
                                 .size(width = 112.dp, height = 192.dp)
-                                .clip(podShape)
                                 .background(Color(0xFF101216), podShape)
                                 .border(1.dp, cs.outlineVariant.copy(alpha = 0.5f), podShape)
                                 .padding(10.dp),
@@ -478,25 +503,32 @@ private fun OverviewPage(
 }
 
 @Composable
-private fun SettingsPage(controller: GlyphWorkbenchController) {
+private fun SettingsPage(
+    controller: GlyphWorkbenchController,
+    listState: LazyListState,
+) {
     val revealState = LocalGlyphThemeReveal.current
     val systemDark = isSystemInDarkTheme()
     val cs = MochiTheme.colorScheme
 
-    val colorOptions = persistentListOf(
-        stringResource(R.string.theme_mode_system),
-        stringResource(R.string.theme_mode_light),
-        stringResource(R.string.theme_mode_dark),
-    )
-    val styleOptions = persistentListOf(
-        stringResource(R.string.palette_style_tonal),
-        stringResource(R.string.palette_style_expressive),
-        stringResource(R.string.palette_style_vibrant),
-        stringResource(R.string.palette_style_monochrome),
-    )
+    val modeSystem = stringResource(R.string.theme_mode_system)
+    val modeLight = stringResource(R.string.theme_mode_light)
+    val modeDark = stringResource(R.string.theme_mode_dark)
+    val colorOptions = remember(modeSystem, modeLight, modeDark) {
+        persistentListOf(modeSystem, modeLight, modeDark)
+    }
+
+    val styleTonal = stringResource(R.string.palette_style_tonal)
+    val styleExpressive = stringResource(R.string.palette_style_expressive)
+    val styleVibrant = stringResource(R.string.palette_style_vibrant)
+    val styleMono = stringResource(R.string.palette_style_monochrome)
+    val styleOptions = remember(styleTonal, styleExpressive, styleVibrant, styleMono) {
+        persistentListOf(styleTonal, styleExpressive, styleVibrant, styleMono)
+    }
 
     MochiLazyCompactTitleScaffold(
         title = stringResource(R.string.tab_settings),
+        listState = listState,
         onRefresh = controller::refreshHardware,
     ) {
         item(key = "settings_runtime_status") {
