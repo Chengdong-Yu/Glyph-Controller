@@ -8,19 +8,27 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -31,6 +39,8 @@ import ui.feice.mochi.basic.MochiBarButton
 import ui.feice.mochi.basic.MochiButton
 import ui.feice.mochi.basic.MochiButtonGroup
 import ui.feice.mochi.basic.MochiButtonStyle
+import ui.feice.mochi.basic.MochiTabBar
+import ui.feice.mochi.basic.MochiTabItem
 import ui.feice.mochi.basic.Text
 import ui.feice.mochi.effect.content.MochiCounterText
 import ui.feice.mochi.icons.MochiIonicon
@@ -39,10 +49,16 @@ import ui.feice.mochi.list.MochiListSection
 import ui.feice.mochi.list.MochiListStatusChip
 import ui.feice.mochi.list.MochiSwipeAction
 import ui.feice.mochi.list.MochiSwipeRow
+import ui.feice.mochi.navigation.LocalMochiBottomBarInset
 import ui.feice.mochi.navigation.MochiBackButton
 import ui.feice.mochi.navigation.MochiLazyCompactTitleScaffold
+import ui.feice.mochi.navigation.MochiPeerTransition
+import ui.feice.mochi.navigation.MochiPeerTransitionSpec
+import ui.feice.mochi.navigation.mochiHideWhenCovered
+import ui.feice.mochi.navigation.mochiScrollEdgeFade
 import ui.feice.mochi.nothing.nothingDotTextStyle
 import ui.feice.mochi.shape.MochiRoundedRectangle
+import ui.feice.mochi.theme.MochiDefaults
 import ui.feice.mochi.theme.MochiTheme
 
 /** Immutable curated lighting preset definition shared across Overview and Studio. */
@@ -75,6 +91,69 @@ internal object GlyphNavIds {
 internal enum class GlyphBarIconKey { Revert, Scenes }
 
 enum class GlyphStatusTone { Active, Ready, Warning, Neutral }
+
+/**
+ * Lightweight solid-material tab scaffold built on Mochi's public [MochiPeerTransition] and [MochiTabBar].
+ *
+ * Compared to `MochiTabScaffold`:
+ * 1. Skips unconditional `rememberMochiBackdrop` (`LayerBackdrop`) full-screen offscreen recording.
+ * 2. Uses `retainPages = false` so inactive tabs unmount from Composition while preserving scroll state.
+ * 3. Disables full-screen horizontal tab-swipe gesture interception so sliders and backplate scrubbing stay conflict-free.
+ * 4. Keeps [MochiTabBar] expanded during vertical list scrolling to eliminate scroll-time layout/blur churn.
+ */
+@Composable
+fun GlyphTabScaffold(
+    items: ImmutableList<MochiTabItem>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    onReselect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    background: Color = MochiDefaults.groupedBackground(),
+    content: @Composable (index: Int) -> Unit,
+) {
+    val density = LocalDensity.current
+    var barPx by remember { mutableIntStateOf(0) }
+    val safeIndex = selectedIndex.coerceIn(0, (items.size - 1).coerceAtLeast(0))
+
+    Box(modifier.fillMaxSize().background(background)) {
+        CompositionLocalProvider(LocalMochiBottomBarInset provides with(density) { barPx.toDp() }) {
+            MochiPeerTransition(
+                targetState = safeIndex,
+                modifier = Modifier.fillMaxSize(),
+                pages = null,
+                direction = { from, to -> to.compareTo(from) },
+                background = background,
+                spec = MochiPeerTransitionSpec.Depth,
+                retainPages = false,
+            ) { page ->
+                content(page)
+            }
+        }
+
+        Spacer(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 36.dp)
+                .mochiScrollEdgeFade(background, bottom = true, extent = 56.dp),
+        )
+
+        MochiTabBar(
+            selectedIndex = safeIndex,
+            onSelect = onSelect,
+            items = items,
+            material = null,
+            backdrop = null,
+            scrollBehavior = null,
+            onReselect = onReselect,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .onSizeChanged { barPx = it.height }
+                .mochiHideWhenCovered()
+                .padding(horizontal = 24.dp, vertical = 12.dp),
+        )
+    }
+}
 
 /** Monochrome symbol leading icon for Mochi list rows (`MochiListLeadingStyle.Symbol`). */
 @Composable
@@ -131,7 +210,7 @@ fun GlyphDotCode(
 
 /**
  * Animated mechanical counter rendered in Nothing's dot-matrix numeric font (`Ndot57`).
- * Strictly used for numeric readouts (`0..33`, `0..255`, `%`).
+ * Strictly used for discrete numeric readouts (`0..33`), never continuous slider drags.
  */
 @Composable
 fun GlyphDotCounter(
@@ -152,7 +231,7 @@ fun GlyphDotCounter(
 }
 
 /**
- * Dedicated 4-slot Scene Vault page pushed onto `MochiNavigator` (morphed from the Overview
+ * Dedicated 4-slot Scene Vault page pushed onto `MochiNavigator` (morphed from Studio's
  * scenes card via `mochiNavSource` or side-pushed from Studio's top bar).
  */
 @Composable
@@ -178,12 +257,14 @@ fun GlyphSceneVaultPage(
                 header = stringResource(R.string.home_scenes_title),
                 footer = stringResource(R.string.vault_footer),
             ) {
+                val savedSlots = controller.savedSlots
+                val hardwareReady = controller.hardwareReady && !controller.busy
                 for (slot in 0 until GlyphSceneStore.SLOT_COUNT) {
-                    val slotSnapshot = controller.savedSlots.getOrNull(slot)
+                    val slotSnapshot = savedSlots.getOrNull(slot)
                     SceneSlotSwipeRow(
                         slotIndex = slot,
                         snapshot = slotSnapshot,
-                        hardwareReady = controller.hardwareReady && !controller.busy,
+                        hardwareReady = hardwareReady,
                         onSaveDraft = { controller.saveDraftToSlot(slot) },
                         onLoadToStudio = {
                             if (controller.loadSlotToDraft(slot)) {
@@ -211,18 +292,21 @@ private fun SceneSlotSwipeRow(
 ) {
     val clearLabel = stringResource(R.string.detail_clear_slot)
     val destructiveColor = MochiTheme.colorScheme.error
-    val actions = if (snapshot != null) {
-        listOf(
-            MochiSwipeAction(
-                label = clearLabel,
-                color = destructiveColor,
-                removesRow = false,
-                onClick = onClearSlot,
-                icon = { tint -> MochiIonicon("trash", tint = tint, size = 18.dp) },
-            ),
-        )
-    } else {
-        emptyList()
+    val previewShape = remember { MochiRoundedRectangle(12.dp) }
+    val actions = remember(snapshot != null, clearLabel, destructiveColor, onClearSlot) {
+        if (snapshot != null) {
+            listOf(
+                MochiSwipeAction(
+                    label = clearLabel,
+                    color = destructiveColor,
+                    removesRow = false,
+                    onClick = onClearSlot,
+                    icon = { tint -> MochiIonicon("trash", tint = tint, size = 18.dp) },
+                ),
+            )
+        } else {
+            emptyList()
+        }
     }
 
     MochiSwipeRow(
@@ -242,8 +326,7 @@ private fun SceneSlotSwipeRow(
                 Box(
                     modifier = Modifier
                         .size(width = 48.dp, height = 80.dp)
-                        .clip(MochiRoundedRectangle(12.dp))
-                        .background(Color(0xFF101216))
+                        .background(Color(0xFF101216), previewShape)
                         .padding(5.dp),
                     contentAlignment = Alignment.Center,
                 ) {

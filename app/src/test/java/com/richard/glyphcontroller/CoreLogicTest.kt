@@ -43,6 +43,18 @@ class CoreLogicTest {
 
         assertSame(GlyphSnapshot.Zero, GlyphSnapshot.from(IntArray(GlyphFrame.ZONE_COUNT)))
         assertSame(GlyphSnapshot.Full, GlyphSnapshot.from(IntArray(GlyphFrame.ZONE_COUNT) { 255 }))
+
+        // No-op updates must return the exact same instance without cloning.
+        assertSame(first, first.withLevel(0, 140))
+        assertSame(GlyphSnapshot.Zero, first.withRange(0 until GlyphFrame.ZONE_COUNT, 0))
+        assertSame(GlyphSnapshot.Full, first.withRange(0 until GlyphFrame.ZONE_COUNT, 255))
+
+        val singleUpdated = GlyphSnapshot.Zero.withLevel(7, 210)
+        assertEquals(210, singleUpdated[7])
+        assertEquals(1, singleUpdated.activeCount)
+        assertTrue(singleUpdated.anyLit)
+        assertFalse(singleUpdated.allMax)
+        assertSame(GlyphSnapshot.Zero, singleUpdated.withLevel(7, 0))
     }
 
     @Test

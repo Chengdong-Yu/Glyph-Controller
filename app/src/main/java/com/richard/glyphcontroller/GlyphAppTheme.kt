@@ -1,16 +1,20 @@
 package com.richard.glyphcontroller
 
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import androidx.annotation.StringRes
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.ProvidableCompositionLocal
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalView
 import androidx.core.content.edit
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
@@ -24,6 +28,7 @@ import ui.feice.mochi.nothing.nothingControlPalette
 import ui.feice.mochi.nothing.nothingTextStyles
 import ui.feice.mochi.theme.ColorSchemeMode
 import ui.feice.mochi.theme.LocalMochiControlPalette
+import ui.feice.mochi.theme.MochiGraphics
 import ui.feice.mochi.theme.MochiMaterials
 import ui.feice.mochi.theme.MochiTheme
 import ui.feice.mochi.theme.PaletteStyle
@@ -235,8 +240,46 @@ fun GlyphAppTheme(
                 textStyles = textStyles,
                 materials = materials,
             ) {
+                GlyphHighRefreshRateEffect()
                 ProvideMochiOverscroll(content = content)
             }
         }
     }
+}
+
+/**
+ * Requests the highest native display refresh rate matching the current physical resolution
+ * (e.g. 120Hz on Nothing Phone (2) LTPO OLED) without enabling `MochiGraphicsLevel.Extra`'s
+ * 1.5x blur radius penalty.
+ */
+@Composable
+private fun GlyphHighRefreshRateEffect() {
+    val view = LocalView.current
+    val graphicsLevel = MochiGraphics.level
+    DisposableEffect(view, graphicsLevel) {
+        val window = view.context.findActivity()?.window
+        val display = view.display
+        if (window == null || display == null) return@DisposableEffect onDispose { }
+        val savedModeId = window.attributes.preferredDisplayModeId
+        val current = display.mode
+        val highRefreshMode = display.supportedModes
+            .filter { it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight }
+            .maxByOrNull { it.refreshRate }
+        if (highRefreshMode != null && highRefreshMode.refreshRate > 60.5f) {
+            window.attributes = window.attributes.apply {
+                preferredDisplayModeId = highRefreshMode.modeId
+            }
+        }
+        onDispose {
+            window.attributes = window.attributes.apply {
+                preferredDisplayModeId = savedModeId
+            }
+        }
+    }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }

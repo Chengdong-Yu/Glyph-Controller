@@ -7,8 +7,13 @@ import android.util.Log
 object GlyphEffectCoordinator {
     private val lock = Any()
     private val client = RootGlyphClient()
+    private var hardwareVerified = false
     private val session = GlyphSession { frame, sync ->
-        if (frame.any { it > 0 }) client.setZoneColors(frame, sync) else client.turnOff()
+        val ok = if (frame.any { it > 0 }) client.setZoneColors(frame, sync) else client.turnOff()
+        if (!ok) {
+            hardwareVerified = false
+        }
+        ok
     }
 
     class Readiness(val hardware: GlyphHardware.Status, val restored: Boolean) {
@@ -17,7 +22,9 @@ object GlyphEffectCoordinator {
 
     fun checkAndRestore(context: Context): Readiness = synchronized(lock) {
         val status = GlyphHardware.probe(client)
-        Readiness(status, status == GlyphHardware.Status.READY && session.restore(GlyphPowerState.getFrame(context)))
+        val restored = status == GlyphHardware.Status.READY && session.restore(GlyphPowerState.getFrame(context))
+        hardwareVerified = restored
+        Readiness(status, restored)
     }
 
     fun toggleManual(context: Context): Boolean = synchronized(lock) {
@@ -26,12 +33,12 @@ object GlyphEffectCoordinator {
     }
 
     fun applyManualFrame(context: Context, frame: IntArray): Boolean = synchronized(lock) {
-        if (!GlyphFrame.valid(frame) || !hardwareReady()) return@synchronized false
+        if (!GlyphFrame.valid(frame) || !ensureHardwareReady()) return@synchronized false
         session.manual(frame, GlyphPowerState.getFrame(context)) { GlyphPowerState.setFrame(context, it) }
     }
 
     fun beginEffect(context: Context, effect: GlyphSession.Effect): GlyphSession.Lease? = synchronized(lock) {
-        if (!hardwareReady()) return@synchronized null
+        if (!ensureHardwareReady()) return@synchronized null
         session.begin(effect, GlyphPowerState.getFrame(context))
     }
 
@@ -49,5 +56,10 @@ object GlyphEffectCoordinator {
         }
     }
 
-    private fun hardwareReady() = GlyphHardware.probe(client) == GlyphHardware.Status.READY
+    private fun ensureHardwareReady(): Boolean {
+        if (hardwareVerified) return true
+        val ok = GlyphHardware.probe(client) == GlyphHardware.Status.READY
+        hardwareVerified = ok
+        return ok
+    }
 }
