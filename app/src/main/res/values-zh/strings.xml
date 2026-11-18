@@ -63,7 +63,6 @@
     <string name="detail_invert_all">亮度反相</string>
     <string name="detail_dim_half">亮度减半</string>
 
-    <string name="detail_presets">场景预设</string>
     <string name="detail_preset_all">全部点亮</string>
     <string name="detail_preset_soft">柔和常亮</string>
     <string name="detail_preset_ring">仅 C 环</string>
@@ -72,7 +71,6 @@
     <string name="detail_preset_essential">焦点圆点</string>
     <string name="detail_preset_off">全部熄灭</string>
 
-    <string name="detail_commit_section">写入硬件</string>
     <string name="detail_current">当前预览与硬件灯带一致</string>
     <string name="detail_unsaved">预览有未写入硬件的改动</string>
     <string name="detail_apply">应用到 Glyph 灯带</string>
@@ -112,6 +110,10 @@
     <string name="notify_off">已关闭</string>
     <string name="notify_recovering">正在重连</string>
     <string name="notify_disconnected">连接已断开</string>
+    <string name="notify_access_guide_title">开启通知使用权</string>
+    <string name="notify_access_guide_message">通知闪烁需要授予系统「通知使用权」才能感知新消息并亮灯。现在前往系统设置开启吗？</string>
+    <string name="notify_access_guide_confirm">前往开启</string>
+    <string name="notify_access_guide_later">稍后</string>
 
     <string name="sw_charger">充电流光</string>
     <string name="charger_hint">接入电源时播放一次自下而上的流光</string>

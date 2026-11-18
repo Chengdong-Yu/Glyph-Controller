@@ -9,10 +9,10 @@
 ## 核心特性
 
 - **动态莫奈取色与 Mochi 导航交互架构：**
-  - **总览 (`Overview`)：** 搭载主题光晕联动的 33 区矢量背板舞台、点阵滚轮计数器（`MochiCounterText` + `nothingDotTextStyle`）、平均亮度线性仪表（`MochiLinearGauge`）、一键全亮/全灭总控、可视化快捷预设画廊（`MochiSelectFrame`），以及内置 4 槽位缩略预览并支持容器变形转场（`mochiNavSource`）的自定义存档卡片。
-  - **工坊 (`Studio`)：** 真实 Phone (2) 背板舞台，支持**点按与连续拖动选区**、主题色光晕与选区描边、**单灯段 / 整组联动**双模式（`MochiSegmentedControl`）、6 组解剖分区筛选、带阻尼刻度吸附的 `MochiListSliderRow`、批量帧编辑按钮组（`MochiButtonGroup`：同步本组 / 铺满全区 / 亮度反相 / 亮度减半），以及 `MochiSelectFrame` 可视化预设画廊。
-  - **场景槽位页 (`Scene Vault`)：** 4 槽位自定义场景管理（槽位 1 自动兼容旧版存档），支持从总览卡片展开变形或从工坊顶栏推入、共享顶栏按钮变形，以及左滑露出清空操作（`MochiSwipeRow`）。
-  - **设置 (`Settings`)：** 集中呈现**运行状态**（Glyph 硬件、通知使用权、`service.d` 看门狗）、**主题与配色**（深浅色揭开转场 `MochiThemeRevealHost`、Material Design 3 莫奈动态取色开关、4 种配色风格、9 款精选色块 + 全色域自定义取色器、衬线标题开关）、自动灯效（通知三段闪烁、充电流光、0ms 延迟 16 段 C1 音量指示环）、硬件灯效一键试播，以及保活看门狗管理。
+  - **总览 (`Overview`)：** 搭载主题光晕联动的 33 区矢量背板舞台、点阵滚轮计数器（`MochiCounterText` + `nothingDotTextStyle`）、平均亮度线性仪表（`MochiLinearGauge`）、一键全亮/全灭总控，以及**自动灯效控制区**（通知闪烁、免打扰自动静默、充电流光、0ms 延迟 16 段 C1 音量指示环；首次开启通知闪烁时自动弹窗引导开启系统通知使用权）。
+  - **工坊 (`Studio`)：** 真实 Phone (2) 背板舞台，支持**点按与连续拖动选区**、主题色光晕与选区描边、**单灯段 / 整组联动**双模式（`MochiSegmentedControl`）、6 组解剖分区筛选、带阻尼刻度吸附的 `MochiListSliderRow`、批量帧编辑按钮组（`MochiButtonGroup`）、**可视化快捷预设画廊**（`MochiSelectFrame`），以及内置 4 槽位缩略预览并支持容器变形转场（`mochiNavSource`）的**自定义存档卡片**。
+  - **场景槽位页 (`Scene Vault`)：** 4 槽位自定义场景管理（槽位 1 自动兼容旧版存档），支持从工坊存档卡片展开变形或从顶栏推入、共享顶栏按钮变形，以及左滑露出清空操作（`MochiSwipeRow`）。
+  - **设置 (`Settings`)：** 集中呈现**运行状态**（Glyph 硬件、通知使用权、`service.d` 看门狗）、**主题与配色**（深浅色揭开转场 `MochiThemeRevealHost`、Material Design 3 莫奈动态取色开关、4 种配色风格、9 款精选色块 + 全色域自定义取色器、衬线标题开关）、硬件灯效一键试播，以及保活看门狗管理。
 - **底层性能与状态架构优化：**
   - **Compose 结构化快照 (`@Immutable GlyphSnapshot`)：** 消除 `IntArray` 引用相等导致的冗余重组。
   - **响应式状态控制器 (`@Stable GlyphWorkbenchController`)：** 合并 `MainActivity` 与 `GlyphDetailActivity` 重复逻辑，使用 `StateFlow` 与系统免打扰广播替代原有的 1 秒轮询协程。

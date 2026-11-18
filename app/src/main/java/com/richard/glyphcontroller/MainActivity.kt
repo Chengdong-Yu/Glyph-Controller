@@ -6,8 +6,6 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,11 +14,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
@@ -30,7 +26,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -46,8 +41,6 @@ import ui.feice.mochi.basic.MochiDialog
 import ui.feice.mochi.basic.MochiDialogAction
 import ui.feice.mochi.basic.MochiDialogActionRole
 import ui.feice.mochi.basic.MochiLinearGauge
-import ui.feice.mochi.basic.MochiSelectFrame
-import ui.feice.mochi.basic.MochiSelectionCheck
 import ui.feice.mochi.basic.MochiSwitch
 import ui.feice.mochi.basic.MochiTabItem
 import ui.feice.mochi.basic.MochiToastHost
@@ -56,8 +49,6 @@ import ui.feice.mochi.basic.rememberMochiToastState
 import ui.feice.mochi.effect.content.MochiBlurText
 import ui.feice.mochi.effect.content.crossfadeOrChange
 import ui.feice.mochi.effect.content.revealIfShadeChanges
-import ui.feice.mochi.effect.mask.mochiScrollFadeMask
-import ui.feice.mochi.effect.overscroll.MochiScrollDefaults
 import ui.feice.mochi.icons.MochiIconStyle
 import ui.feice.mochi.icons.MochiIonicon
 import ui.feice.mochi.icons.MochiIonicons
@@ -68,17 +59,14 @@ import ui.feice.mochi.list.MochiListLeadingStyle
 import ui.feice.mochi.list.MochiListPickerRow
 import ui.feice.mochi.list.MochiListRow
 import ui.feice.mochi.list.MochiListSection
-import ui.feice.mochi.list.MochiListSectionHeader
 import ui.feice.mochi.list.mochiListDivider
 import ui.feice.mochi.navigation.MochiLazyCompactTitleScaffold
 import ui.feice.mochi.navigation.MochiNavHost
 import ui.feice.mochi.navigation.MochiTabScaffold
-import ui.feice.mochi.navigation.mochiNavSource
 import ui.feice.mochi.navigation.rememberMochiNavigator
 import ui.feice.mochi.navigation.rememberMochiTabScaffoldState
 import ui.feice.mochi.picker.MochiSeedPalette
 import ui.feice.mochi.shape.MochiRoundedRectangle
-import ui.feice.mochi.theme.MochiDefaults
 import ui.feice.mochi.theme.MochiTheme
 import ui.feice.mochi.utils.mochiEnableEdgeToEdge
 
@@ -207,12 +195,12 @@ private fun MainWorkbenchRoot(controller: GlyphWorkbenchController) {
                     0 -> OverviewPage(
                         controller = controller,
                         onOpenStudio = { tabState.select(1) },
-                        onOpenScenesFromCard = { nav.push(ROUTE_SCENES, from = GlyphNavIds.ScenesCardSource) },
                     )
 
                     1 -> GlyphStudioPage(
                         controller = controller,
-                        onOpenScenes = { nav.push(ROUTE_SCENES) },
+                        onOpenScenesFromBar = { nav.push(ROUTE_SCENES) },
+                        onOpenScenesFromCard = { nav.push(ROUTE_SCENES, from = GlyphNavIds.ScenesCardSource) },
                     )
 
                     else -> SettingsPage(controller = controller)
@@ -238,11 +226,9 @@ private fun MainWorkbenchRoot(controller: GlyphWorkbenchController) {
 private fun OverviewPage(
     controller: GlyphWorkbenchController,
     onOpenStudio: () -> Unit,
-    onOpenScenesFromCard: () -> Unit,
 ) {
     val applied = controller.appliedSnapshot
     val telemetry = remember(applied) { GlyphZones.telemetry(applied) }
-    val savedCount = controller.savedSlots.count { it != null }
     val cs = MochiTheme.colorScheme
     val podShape = remember { MochiRoundedRectangle(20.dp) }
 
@@ -416,122 +402,76 @@ private fun OverviewPage(
             }
         }
 
-        item(key = "overview_presets") {
+        item(key = "overview_effects") {
             MochiListSection(
-                header = stringResource(R.string.home_presets_section),
+                header = stringResource(R.string.home_effects_section),
+                footer = stringResource(R.string.home_effects_footer),
             ) {
-                val presetScroll = rememberScrollState()
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .mochiListDivider(MochiListDefaults.RowPadding)
-                        .mochiScrollFadeMask(presetScroll, vertical = false)
-                        .horizontalScroll(presetScroll, flingBehavior = MochiScrollDefaults.flingBehavior())
-                        .padding(horizontal = MochiListDefaults.RowPadding, vertical = 14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    GlyphCuratedPresets.forEach { preset ->
-                        val selected = applied == preset.snapshot
-                        Column(
-                            modifier = Modifier.width(80.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            MochiSelectFrame(
-                                selected = selected,
-                                onClick = { controller.applyQuickPreset(preset.snapshot) },
-                                modifier = Modifier
-                                    .width(80.dp)
-                                    .height(128.dp),
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(Color(0xFF101216))
-                                        .padding(6.dp),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    GlyphVectorPreview(
-                                        snapshot = preset.snapshot,
-                                        modifier = Modifier.fillMaxSize(),
-                                    )
-                                }
-                            }
-                            Text(
-                                text = stringResource(preset.labelRes),
-                                style = MochiTheme.textStyles.footnote,
-                                color = cs.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            MochiSelectionCheck(selected = selected)
-                        }
-                    }
-                }
-            }
-        }
+                MochiListRow(
+                    title = stringResource(R.string.sw_notify),
+                    subtitle = stringResource(R.string.notify_hint),
+                    leading = { GlyphSymbolLeading("notifications") },
+                    leadingStyle = MochiListLeadingStyle.Symbol,
+                    trailing = {
+                        MochiSwitch(
+                            checked = controller.notifyEnabled,
+                            onCheckedChange = controller::setNotificationFlash,
+                        )
+                    },
+                )
 
-        item(key = "overview_scenes_card") {
-            Column(verticalArrangement = Arrangement.spacedBy(MochiListDefaults.HeaderGap)) {
-                MochiListSectionHeader(text = stringResource(R.string.home_scenes_section))
-                MochiListCard(
-                    modifier = Modifier.mochiNavSource(
-                        key = GlyphNavIds.ScenesCardSource,
-                        cornerRadius = MochiListDefaults.SectionCorner,
-                        color = MochiDefaults.groupedContainer(),
-                    ),
-                ) {
+                if (controller.notifyEnabled && controller.listenerStatus == GlyphListenerState.Status.NEEDS_ACCESS) {
                     MochiListRow(
-                        title = stringResource(R.string.home_scenes_title),
-                        subtitle = stringResource(R.string.home_scenes_summary),
-                        value = stringResource(R.string.home_scenes_count, savedCount),
-                        leading = { GlyphSymbolLeading("bookmark") },
-                        leadingStyle = MochiListLeadingStyle.Symbol,
+                        title = stringResource(R.string.home_access_title),
+                        status = {
+                            GlyphStatusBadge(
+                                text = stringResource(R.string.notify_need_listener),
+                                tone = GlyphStatusTone.Warning,
+                            )
+                        },
                         chevron = true,
-                        onClick = onOpenScenesFromCard,
+                        onClick = controller::openNotificationAccessSettings,
                     )
-
-                    val slotShape = remember { MochiRoundedRectangle(14.dp) }
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(role = Role.Button, onClick = onOpenScenesFromCard)
-                            .padding(horizontal = MochiListDefaults.RowPadding, vertical = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        for (slot in 0 until GlyphSceneStore.SLOT_COUNT) {
-                            val slotSnap = controller.savedSlots.getOrNull(slot)
-                            Column(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(slotShape)
-                                    .background(cs.surfaceContainerHigh, slotShape)
-                                    .padding(vertical = 10.dp, horizontal = 6.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(width = 38.dp, height = 66.dp)
-                                        .clip(MochiRoundedRectangle(10.dp))
-                                        .background(Color(0xFF101216))
-                                        .padding(4.dp),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    GlyphVectorPreview(
-                                        snapshot = slotSnap ?: GlyphSnapshot.Zero,
-                                        modifier = Modifier.fillMaxSize(),
-                                    )
-                                }
-                                GlyphDotCode(
-                                    code = "S0${slot + 1}",
-                                    style = MochiTheme.textStyles.labelSmall,
-                                    color = if (slotSnap != null) cs.primary else cs.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    }
                 }
+
+                if (controller.notifyEnabled) {
+                    MochiListRow(
+                        title = stringResource(R.string.sw_notify_pause_dnd),
+                        subtitle = stringResource(R.string.notify_pause_dnd_hint),
+                        trailing = {
+                            MochiSwitch(
+                                checked = controller.pauseNotificationDuringDnd,
+                                onCheckedChange = controller::setPauseInDnd,
+                            )
+                        },
+                    )
+                }
+
+                MochiListRow(
+                    title = stringResource(R.string.sw_charger),
+                    subtitle = stringResource(R.string.charger_hint),
+                    leading = { GlyphSymbolLeading("flash") },
+                    leadingStyle = MochiListLeadingStyle.Symbol,
+                    trailing = {
+                        MochiSwitch(
+                            checked = controller.chargerEnabled,
+                            onCheckedChange = controller::setChargingSweep,
+                        )
+                    },
+                )
+
+                MochiListRow(
+                    title = stringResource(R.string.sw_volume),
+                    subtitle = stringResource(R.string.volume_hint),
+                    leading = { GlyphSymbolLeading("volume-high") },
+                    leadingStyle = MochiListLeadingStyle.Symbol,
+                    trailing = {
+                        MochiSwitch(
+                            checked = controller.volumeEnabled,
+                            onCheckedChange = controller::setVolumeRing,
+                        )
+                    },
+                )
             }
         }
     }
@@ -714,65 +654,6 @@ private fun SettingsPage(controller: GlyphWorkbenchController) {
             }
         }
 
-        item(key = "settings_effects") {
-            MochiListSection(
-                header = stringResource(R.string.home_effects_section),
-                footer = stringResource(R.string.home_effects_footer),
-            ) {
-                MochiListRow(
-                    title = stringResource(R.string.sw_notify),
-                    subtitle = stringResource(R.string.notify_hint),
-                    leading = { GlyphSymbolLeading("notifications") },
-                    leadingStyle = MochiListLeadingStyle.Symbol,
-                    trailing = {
-                        MochiSwitch(
-                            checked = controller.notifyEnabled,
-                            onCheckedChange = controller::setNotificationFlash,
-                        )
-                    },
-                )
-
-                MochiListRow(
-                    title = stringResource(R.string.sw_notify_pause_dnd),
-                    subtitle = stringResource(R.string.notify_pause_dnd_hint),
-                    enabled = controller.notifyEnabled,
-                    trailing = {
-                        MochiSwitch(
-                            checked = controller.pauseNotificationDuringDnd,
-                            onCheckedChange = controller::setPauseInDnd,
-                            enabled = controller.notifyEnabled,
-                        )
-                    },
-                )
-
-                MochiListRow(
-                    title = stringResource(R.string.sw_charger),
-                    subtitle = stringResource(R.string.charger_hint),
-                    leading = { GlyphSymbolLeading("flash") },
-                    leadingStyle = MochiListLeadingStyle.Symbol,
-                    trailing = {
-                        MochiSwitch(
-                            checked = controller.chargerEnabled,
-                            onCheckedChange = controller::setChargingSweep,
-                        )
-                    },
-                )
-
-                MochiListRow(
-                    title = stringResource(R.string.sw_volume),
-                    subtitle = stringResource(R.string.volume_hint),
-                    leading = { GlyphSymbolLeading("volume-high") },
-                    leadingStyle = MochiListLeadingStyle.Symbol,
-                    trailing = {
-                        MochiSwitch(
-                            checked = controller.volumeEnabled,
-                            onCheckedChange = controller::setVolumeRing,
-                        )
-                    },
-                )
-            }
-        }
-
         item(key = "settings_hardware_test") {
             MochiListSection(
                 header = stringResource(R.string.effect_preview_section),
@@ -832,6 +713,36 @@ internal fun GlyphWorkbenchDialogs(controller: GlyphWorkbenchController) {
             )
         },
         actions = unsupportedActions,
+    )
+
+    val guideLaterLabel = stringResource(R.string.notify_access_guide_later)
+    val guideConfirmLabel = stringResource(R.string.notify_access_guide_confirm)
+    val guideActions = remember(guideLaterLabel, guideConfirmLabel, controller) {
+        persistentListOf(
+            MochiDialogAction(
+                label = guideLaterLabel,
+                role = MochiDialogActionRole.Cancel,
+            ),
+            MochiDialogAction(
+                label = guideConfirmLabel,
+                role = MochiDialogActionRole.Primary,
+                onClick = controller::openNotificationAccessSettings,
+            ),
+        )
+    }
+    MochiDialog(
+        visible = controller.showNotifyAccessGuideDialog,
+        onDismissRequest = { controller.showNotifyAccessGuideDialog = false },
+        title = stringResource(R.string.notify_access_guide_title),
+        message = stringResource(R.string.notify_access_guide_message),
+        icon = {
+            MochiIonicon(
+                name = "notifications",
+                tint = MochiTheme.colorScheme.primary,
+                size = 44.dp,
+            )
+        },
+        actions = guideActions,
     )
 
     val cancelLabel = stringResource(R.string.keepalive_cancel)

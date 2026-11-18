@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
@@ -46,27 +47,36 @@ import ui.feice.mochi.effect.mask.mochiScrollFadeMask
 import ui.feice.mochi.effect.overscroll.MochiScrollDefaults
 import ui.feice.mochi.icons.MochiIonicon
 import ui.feice.mochi.list.MochiListButton
+import ui.feice.mochi.list.MochiListCard
 import ui.feice.mochi.list.MochiListDefaults
+import ui.feice.mochi.list.MochiListLeadingStyle
+import ui.feice.mochi.list.MochiListRow
 import ui.feice.mochi.list.MochiListSection
+import ui.feice.mochi.list.MochiListSectionHeader
 import ui.feice.mochi.list.MochiListSliderRow
 import ui.feice.mochi.list.mochiListDivider
 import ui.feice.mochi.navigation.MochiLazyCompactTitleScaffold
+import ui.feice.mochi.navigation.mochiNavSource
 import ui.feice.mochi.shape.MochiRoundedRectangle
+import ui.feice.mochi.theme.MochiDefaults
 import ui.feice.mochi.theme.MochiTheme
 import ui.feice.mochi.utils.rememberMochiHaptics
 
 /**
- * 33-zone Nothing Phone (2) Studio page built on Mochi's compact-title lazy scaffold.
- * Shared between the Studio tab in [MainActivity] and standalone [GlyphDetailActivity].
+ * 33-zone Nothing Phone (2) Studio page hosting the interactive backplate editor,
+ * Quick Presets gallery, and 4-slot Saved Scenes card.
  */
 @Composable
 fun GlyphStudioPage(
     controller: GlyphWorkbenchController,
-    onOpenScenes: () -> Unit,
+    onOpenScenesFromBar: () -> Unit,
+    onOpenScenesFromCard: () -> Unit,
     navigationIcon: (@Composable () -> Unit)? = null,
 ) {
     val selectedZone = controller.selectedZone
     val selectedLevel = controller.studioSnapshot[selectedZone]
+    val savedCount = controller.savedSlots.count { it != null }
+    val cs = MochiTheme.colorScheme
     val scopeItems = persistentListOf(
         stringResource(R.string.detail_scope_single),
         stringResource(R.string.detail_scope_group),
@@ -90,7 +100,7 @@ fun GlyphStudioPage(
                     )
                 }
                 MochiBarGroupItem(
-                    onClick = onOpenScenes,
+                    onClick = onOpenScenesFromBar,
                     navId = GlyphNavIds.ScenesIcon,
                     contentKey = GlyphBarIconKey.Scenes,
                 ) {
@@ -146,18 +156,18 @@ fun GlyphStudioPage(
                                 GlyphDotCode(
                                     code = GlyphZones.name(selectedZone),
                                     style = MochiTheme.textStyles.headlineSmall,
-                                    color = MochiTheme.colorScheme.primary,
+                                    color = cs.primary,
                                 )
                                 GlyphDotCode(
                                     code = "LED ${GlyphZones.ledIds[selectedZone]}",
                                     style = MochiTheme.textStyles.labelMedium,
-                                    color = MochiTheme.colorScheme.onSurfaceVariant,
+                                    color = cs.onSurfaceVariant,
                                 )
                             }
                             Text(
                                 text = stringResource(GlyphZones.groupName(selectedZone)),
                                 style = MochiTheme.textStyles.subhead,
-                                color = MochiTheme.colorScheme.onSurfaceVariant,
+                                color = cs.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -166,7 +176,7 @@ fun GlyphStudioPage(
                         GlyphDotCounter(
                             value = selectedLevel.toLong(),
                             style = MochiTheme.textStyles.headlineSmall,
-                            color = MochiTheme.colorScheme.onSurface,
+                            color = cs.onSurface,
                             format = { "$it / 255" },
                         )
                     }
@@ -198,6 +208,8 @@ fun GlyphStudioPage(
 
                 MochiListSection(
                     header = stringResource(R.string.detail_editor_section),
+                    footer = controller.studioActionText,
+                    animateHeight = false,
                 ) {
                     ZoneStripSelectorRow(
                         snapshot = controller.studioSnapshot,
@@ -224,13 +236,61 @@ fun GlyphStudioPage(
                         onInvert = controller::invertDraft,
                         onDimHalf = controller::dimDraftHalf,
                     )
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .mochiListDivider(MochiListDefaults.RowPadding)
+                            .padding(MochiListDefaults.RowPadding),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        MochiButton(
+                            onClick = controller::applyDraft,
+                            enabled = controller.hardwareReady && !controller.busy,
+                            modifier = Modifier.fillMaxWidth(),
+                            style = MochiButtonStyle.Filled,
+                        ) {
+                            MochiIonicon("flash", size = 18.dp)
+                            Text(
+                                text = stringResource(R.string.detail_apply),
+                                style = MochiTheme.textStyles.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+                                maxLines = 1,
+                            )
+                        }
+
+                        MochiBlurVisibility(
+                            visible = controller.isDraftDirty,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            MochiButton(
+                                onClick = controller::revertDraft,
+                                enabled = !controller.busy,
+                                modifier = Modifier.fillMaxWidth(),
+                                style = MochiButtonStyle.Tonal,
+                            ) {
+                                MochiIonicon("arrow-undo", size = 18.dp)
+                                Text(
+                                    text = stringResource(R.string.detail_reset_draft),
+                                    style = MochiTheme.textStyles.bodyLarge.copy(fontWeight = FontWeight.Medium),
+                                    maxLines = 1,
+                                )
+                            }
+                        }
+                    }
+
+                    if (!controller.hardwareReady) {
+                        MochiListButton(
+                            text = stringResource(R.string.btn_retry_hardware),
+                            onClick = controller::checkHardware,
+                        )
+                    }
                 }
             }
         }
 
-        item(key = "studio_curated_presets") {
+        item(key = "studio_quick_presets") {
             MochiListSection(
-                header = stringResource(R.string.detail_presets),
+                header = stringResource(R.string.home_presets_section),
             ) {
                 val presetScroll = rememberScrollState()
                 Row(
@@ -251,7 +311,7 @@ fun GlyphStudioPage(
                         ) {
                             MochiSelectFrame(
                                 selected = isSelected,
-                                onClick = { controller.stagePresetInDraft(preset.snapshot) },
+                                onClick = { controller.applyQuickPreset(preset.snapshot) },
                                 modifier = Modifier
                                     .width(82.dp)
                                     .height(132.dp),
@@ -272,7 +332,7 @@ fun GlyphStudioPage(
                             Text(
                                 text = stringResource(preset.labelRes),
                                 style = MochiTheme.textStyles.footnote,
-                                color = MochiTheme.colorScheme.onSurface,
+                                color = cs.onSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -283,58 +343,66 @@ fun GlyphStudioPage(
             }
         }
 
-        item(key = "studio_commit_section") {
-            MochiListSection(
-                header = stringResource(R.string.detail_commit_section),
-                footer = controller.studioActionText,
-                animateHeight = false,
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .mochiListDivider(MochiListDefaults.RowPadding)
-                        .padding(MochiListDefaults.RowPadding),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+        item(key = "studio_saved_scenes_card") {
+            Column(verticalArrangement = Arrangement.spacedBy(MochiListDefaults.HeaderGap)) {
+                MochiListSectionHeader(text = stringResource(R.string.home_scenes_section))
+                MochiListCard(
+                    modifier = Modifier.mochiNavSource(
+                        key = GlyphNavIds.ScenesCardSource,
+                        cornerRadius = MochiListDefaults.SectionCorner,
+                        color = MochiDefaults.groupedContainer(),
+                    ),
                 ) {
-                    MochiButton(
-                        onClick = controller::applyDraft,
-                        enabled = controller.hardwareReady && !controller.busy,
-                        modifier = Modifier.fillMaxWidth(),
-                        style = MochiButtonStyle.Filled,
-                    ) {
-                        MochiIonicon("flash", size = 18.dp)
-                        Text(
-                            text = stringResource(R.string.detail_apply),
-                            style = MochiTheme.textStyles.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
-                            maxLines = 1,
-                        )
-                    }
+                    MochiListRow(
+                        title = stringResource(R.string.home_scenes_title),
+                        subtitle = stringResource(R.string.home_scenes_summary),
+                        value = stringResource(R.string.home_scenes_count, savedCount),
+                        leading = { GlyphSymbolLeading("bookmark") },
+                        leadingStyle = MochiListLeadingStyle.Symbol,
+                        chevron = true,
+                        onClick = onOpenScenesFromCard,
+                    )
 
-                    MochiBlurVisibility(
-                        visible = controller.isDraftDirty,
-                        modifier = Modifier.fillMaxWidth(),
+                    val slotShape = remember { MochiRoundedRectangle(14.dp) }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(role = Role.Button, onClick = onOpenScenesFromCard)
+                            .padding(horizontal = MochiListDefaults.RowPadding, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        MochiButton(
-                            onClick = controller::revertDraft,
-                            enabled = !controller.busy,
-                            modifier = Modifier.fillMaxWidth(),
-                            style = MochiButtonStyle.Tonal,
-                        ) {
-                            MochiIonicon("arrow-undo", size = 18.dp)
-                            Text(
-                                text = stringResource(R.string.detail_reset_draft),
-                                style = MochiTheme.textStyles.bodyLarge.copy(fontWeight = FontWeight.Medium),
-                                maxLines = 1,
-                            )
+                        for (slot in 0 until GlyphSceneStore.SLOT_COUNT) {
+                            val slotSnap = controller.savedSlots.getOrNull(slot)
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(slotShape)
+                                    .background(cs.surfaceContainerHigh, slotShape)
+                                    .padding(vertical = 10.dp, horizontal = 6.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(width = 38.dp, height = 66.dp)
+                                        .clip(MochiRoundedRectangle(10.dp))
+                                        .background(Color(0xFF101216))
+                                        .padding(4.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    GlyphVectorPreview(
+                                        snapshot = slotSnap ?: GlyphSnapshot.Zero,
+                                        modifier = Modifier.fillMaxSize(),
+                                    )
+                                }
+                                GlyphDotCode(
+                                    code = "S0${slot + 1}",
+                                    style = MochiTheme.textStyles.labelSmall,
+                                    color = if (slotSnap != null) cs.primary else cs.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
-                }
-
-                if (!controller.hardwareReady) {
-                    MochiListButton(
-                        text = stringResource(R.string.btn_retry_hardware),
-                        onClick = controller::checkHardware,
-                    )
                 }
             }
         }
@@ -427,6 +495,7 @@ private fun FrameBatchOperationsRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .mochiListDivider(MochiListDefaults.RowPadding)
             .mochiScrollFadeMask(opsScroll, vertical = false)
             .horizontalScroll(opsScroll, flingBehavior = MochiScrollDefaults.flingBehavior())
             .padding(horizontal = MochiListDefaults.RowPadding, vertical = 12.dp),

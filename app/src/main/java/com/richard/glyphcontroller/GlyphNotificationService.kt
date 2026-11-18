@@ -46,7 +46,7 @@ class GlyphNotificationService : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
-        if (!getSharedPreferences("settings", MODE_PRIVATE).getBoolean("notify_enabled", true)) {
+        if (!GlyphListenerState.isNotifyEnabled(this)) {
             return
         }
         if (GlyphDoNotDisturb.shouldPauseNotificationFlash(this)) return

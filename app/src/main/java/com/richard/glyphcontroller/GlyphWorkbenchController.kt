@@ -82,7 +82,7 @@ class GlyphWorkbenchController(
     var studioActionText by mutableStateOf("")
         private set
 
-    var notifyEnabled by mutableStateOf(settingsPrefs.getBoolean("notify_enabled", true))
+    var notifyEnabled by mutableStateOf(GlyphListenerState.isNotifyEnabled(activity))
         private set
     var pauseNotificationDuringDnd by mutableStateOf(
         settingsPrefs.getBoolean(GlyphDoNotDisturb.PAUSE_NOTIFICATION_SETTING, true),
@@ -105,6 +105,7 @@ class GlyphWorkbenchController(
     private var unsupportedShown: Boolean = savedInstanceState?.getBoolean(KEY_UNSUPPORTED_SHOWN) ?: false
     var showUnsupportedDialog by mutableStateOf(false)
     var showRemoveKeepAliveDialog by mutableStateOf(false)
+    var showNotifyAccessGuideDialog by mutableStateOf(false)
 
     val isDraftDirty: Boolean get() = studioSnapshot != appliedSnapshot
 
@@ -149,7 +150,7 @@ class GlyphWorkbenchController(
         seedColor = GlyphAppearancePrefs.getSeedColor(activity)
         serifTitles = GlyphAppearancePrefs.getSerifTitles(activity)
 
-        notifyEnabled = settingsPrefs.getBoolean("notify_enabled", true)
+        notifyEnabled = GlyphListenerState.isNotifyEnabled(activity)
         pauseNotificationDuringDnd = settingsPrefs.getBoolean(GlyphDoNotDisturb.PAUSE_NOTIFICATION_SETTING, true)
         chargerEnabled = settingsPrefs.getBoolean("charger_enabled", true)
         volumeEnabled = settingsPrefs.getBoolean("volume_enabled", true)
@@ -501,7 +502,16 @@ class GlyphWorkbenchController(
     fun setNotificationFlash(enabled: Boolean) {
         notifyEnabled = enabled
         settingsPrefs.edit { putBoolean("notify_enabled", enabled) }
-        if (enabled) GlyphRuntime.ensure(appContext)
+        if (enabled) {
+            val granted = GlyphListenerState.isAccessGranted(activity)
+            val guided = settingsPrefs.getBoolean(KEY_NOTIFY_ACCESS_GUIDED, false)
+            if (!granted && !guided) {
+                settingsPrefs.edit { putBoolean(KEY_NOTIFY_ACCESS_GUIDED, true) }
+                showNotifyAccessGuideDialog = true
+            } else {
+                GlyphRuntime.ensure(appContext)
+            }
+        }
         listenerStatus = GlyphListenerState.status(activity)
     }
 
@@ -634,6 +644,7 @@ class GlyphWorkbenchController(
     }
 
     companion object {
+        private const val KEY_NOTIFY_ACCESS_GUIDED = "notify_access_guided"
         private const val KEY_UNSUPPORTED_SHOWN = "unsupported_shown"
         private const val KEY_DRAFT_FRAME = "studio_draft_frame"
         private const val KEY_DRAFT_REVISION = "studio_draft_revision"

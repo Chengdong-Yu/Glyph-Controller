@@ -27,16 +27,30 @@ object GlyphListenerState {
     }
 
     private fun component(context: Context) = ComponentName(context, GlyphNotificationService::class.java)
-    private fun enabled(context: Context) = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
-        .getBoolean("notify_enabled", true)
-    private fun granted(context: Context) = context.getSystemService(NotificationManager::class.java)
-        .isNotificationListenerAccessGranted(component(context))
+
+    fun isAccessGranted(context: Context): Boolean =
+        context.getSystemService(NotificationManager::class.java)
+            .isNotificationListenerAccessGranted(component(context))
+
+    /**
+     * Fresh installs without listener permission start disabled so turning on Notification Flash
+     * for the first time can guide the user to grant Notification Access. Existing installs that
+     * already granted access or saved an explicit preference keep their state.
+     */
+    fun isNotifyEnabled(context: Context): Boolean {
+        val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+        return if (prefs.contains("notify_enabled")) {
+            prefs.getBoolean("notify_enabled", false)
+        } else {
+            isAccessGranted(context)
+        }
+    }
 
     fun status(context: Context): Status = when {
-        !enabled(context) -> Status.OFF
-        connected && granted(context) -> Status.CONNECTED
+        !isNotifyEnabled(context) -> Status.OFF
+        connected && isAccessGranted(context) -> Status.CONNECTED
         SystemClock.elapsedRealtime() < recoveringUntil -> Status.RECOVERING
-        !granted(context) -> Status.NEEDS_ACCESS
+        !isAccessGranted(context) -> Status.NEEDS_ACCESS
         else -> Status.FAILED
     }
 
@@ -56,7 +70,7 @@ object GlyphListenerState {
 
     /** Called on the recovery worker, with bounded retries rather than repeated grants. */
     fun repair(context: Context) {
-        if (!enabled(context) || (connected && granted(context))) return
+        if (!isNotifyEnabled(context) || (connected && isAccessGranted(context))) return
         val now = SystemClock.elapsedRealtime()
         synchronized(this) {
             if (now < nextAttempt) return
@@ -66,7 +80,7 @@ object GlyphListenerState {
         }
         notifyChanged()
         try {
-            if (!granted(context) && !RootKeepAlive.ensureListenerRegistered()) {
+            if (!isAccessGranted(context) && !RootKeepAlive.ensureListenerRegistered()) {
                 recoveringUntil = 0
                 notifyChanged()
                 return

@@ -63,7 +63,6 @@
     <string name="detail_invert_all">Invert</string>
     <string name="detail_dim_half">Dim 50%</string>
 
-    <string name="detail_presets">Scene presets</string>
     <string name="detail_preset_all">All bright</string>
     <string name="detail_preset_soft">Soft glow</string>
     <string name="detail_preset_ring">C ring</string>
@@ -72,7 +71,6 @@
     <string name="detail_preset_essential">Focus dot</string>
     <string name="detail_preset_off">All off</string>
 
-    <string name="detail_commit_section">Hardware write</string>
     <string name="detail_current">Matches the frame currently on the lights</string>
     <string name="detail_unsaved">Preview has unsaved changes</string>
     <string name="detail_apply">Apply to Glyph lights</string>
@@ -112,6 +110,10 @@
     <string name="notify_off">Off</string>
     <string name="notify_recovering">Reconnecting</string>
     <string name="notify_disconnected">Disconnected</string>
+    <string name="notify_access_guide_title">Enable notification access</string>
+    <string name="notify_access_guide_message">Notification flash needs system Notification Access to detect incoming notifications. Open Settings to enable it now?</string>
+    <string name="notify_access_guide_confirm">Open Settings</string>
+    <string name="notify_access_guide_later">Later</string>
 
     <string name="sw_charger">Charging sweep</string>
     <string name="charger_hint">Plays a bottom-up light wave once when power is connected</string>

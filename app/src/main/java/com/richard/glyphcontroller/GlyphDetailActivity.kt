@@ -70,7 +70,8 @@ class GlyphDetailActivity : ComponentActivity() {
                     when (route) {
                         ROUTE_STUDIO -> GlyphStudioPage(
                             controller = controller,
-                            onOpenScenes = { nav.push(ROUTE_SCENES) },
+                            onOpenScenesFromBar = { nav.push(ROUTE_SCENES) },
+                            onOpenScenesFromCard = { nav.push(ROUTE_SCENES, from = GlyphNavIds.ScenesCardSource) },
                             navigationIcon = { MochiBackButton(history = routeTitle) },
                         )
 
