@@ -90,6 +90,6 @@ dependencies {
     implementation 'androidx.activity:activity-compose:1.13.0'
     implementation 'io.github.feice11:mochi-compose:0.2.0'
     implementation 'io.github.feice11:mochi-nothing:0.2.0'
-    implementation 'io.github.feice11:mochi-icons:0.2.0'
+    implementation 'io.github.feice11:mochi-icons:0.3.0'
     testImplementation 'junit:junit:4.13.2'
 }
